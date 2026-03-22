@@ -1,7 +1,10 @@
 {
   "name": "system-monitor",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "description": "Lightweight macOS system monitor with process killer — built with Next.js and shadcn/ui",
+  "license": "MIT",
+  "author": "Rajan",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
