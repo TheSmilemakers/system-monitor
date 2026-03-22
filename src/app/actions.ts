@@ -13,7 +13,7 @@ export async function stopServer(): Promise<{ success: boolean; error?: string }
 
 // Allowlist of safe cleanup commands — only these patterns can run
 const SAFE_CLEANUP_PATTERNS = [
-  /^rm -rf ".*\/(Library\/Caches|Library\/Logs|\.Trash|Library\/Developer|\.bun\/install\/cache|\.npm\/_cacache|\.cache\/yarn|\.cache\/pip|Library\/Caches\/Homebrew|Library\/Caches\/CocoaPods|Library\/Caches\/pnpm|Library\/Logs\/DiagnosticReports|MobileSync\/Backup|Mail Downloads)\/?\*?"$/,
+  /^rm -rf ".*\/(Library\/Caches|Library\/Logs|\.Trash|Library\/Developer|\.bun\/install\/cache|\.npm\/_cacache|\.cache\/yarn|\.cache\/pip|Library\/Caches\/Homebrew|Library\/Caches\/CocoaPods|Library\/Caches\/pnpm|Library\/Logs\/DiagnosticReports|MobileSync\/Backup|Mail Downloads)"\/?\*$/,
   /^find ".*\/Downloads" -maxdepth 1 -type f -mtime \+30 -delete$/,
   /^sudo rm -rf ".*\/(var\/log)\/\*\.(log|gz)"$/,
 ];
