@@ -518,8 +518,8 @@ export default function Dashboard() {
                       System looks clean. No issues found.
                     </div>
                   ) : (
-                    <ScrollArea className="max-h-[400px]">
-                      <div className="space-y-2">
+                    <ScrollArea className="h-[400px]">
+                      <div className="space-y-2 pr-3">
                         {scanResult.findings.map((finding, i) => (
                           <div
                             key={i}
