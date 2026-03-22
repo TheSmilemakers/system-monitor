@@ -17,6 +17,23 @@ import { killProcess, stopServer, cleanupItem } from "./actions";
 
 // --- Types ---
 
+interface PrivacyFinding {
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  category: string;
+  title: string;
+  detail: string;
+  items: string[];
+  recommendation: string;
+}
+
+interface PrivacyResult {
+  privacyScore: number;
+  findings: PrivacyFinding[];
+  connectionCount: number;
+  trackerCount: number;
+  timestamp: number;
+}
+
 interface CleanupItem {
   id: string;
   category: string;
@@ -230,6 +247,9 @@ export default function Dashboard() {
   const [showCleanup, setShowCleanup] = useState(false);
   const [cleanedItems, setCleanedItems] = useState<Set<string>>(new Set());
   const [cleaningId, setCleaningId] = useState<string | null>(null);
+  const [privacyResult, setPrivacyResult] = useState<PrivacyResult | null>(null);
+  const [privacyScanning, setPrivacyScanning] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const [, startTransition] = useTransition();
 
   const runScan = useCallback(async () => {
@@ -244,6 +264,21 @@ export default function Dashboard() {
       setScanResult(null);
     } finally {
       setScanning(false);
+    }
+  }, []);
+
+  const runPrivacyScan = useCallback(async () => {
+    setPrivacyScanning(true);
+    setShowPrivacy(true);
+    try {
+      const res = await fetch("/api/privacy", { cache: "no-store" });
+      if (!res.ok) throw new Error("Privacy scan failed");
+      const data = await res.json();
+      setPrivacyResult(data);
+    } catch {
+      setPrivacyResult(null);
+    } finally {
+      setPrivacyScanning(false);
     }
   }, []);
 
@@ -367,6 +402,15 @@ export default function Dashboard() {
             disabled={cleaningUp}
           >
             {cleaningUp ? "Scanning..." : "Cleanup"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-3 text-xs font-mono"
+            onClick={runPrivacyScan}
+            disabled={privacyScanning}
+          >
+            {privacyScanning ? "Scanning..." : "Privacy"}
           </Button>
           <Button
             variant="ghost"
@@ -526,6 +570,116 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Privacy Results */}
+        {showPrivacy && (
+          <Card className="border-border">
+            <CardHeader className="pb-2 pt-3 px-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
+                Privacy Scan
+                {privacyResult && (
+                  <>
+                    <Badge
+                      variant="outline"
+                      className={`font-mono text-xs ${
+                        privacyResult.privacyScore >= 80
+                          ? "border-emerald-500/30 text-emerald-400"
+                          : privacyResult.privacyScore >= 50
+                          ? "border-amber-500/30 text-amber-400"
+                          : "border-red-500/30 text-red-400"
+                      }`}
+                    >
+                      Privacy: {privacyResult.privacyScore}/100
+                    </Badge>
+                    <Badge variant="outline" className="font-mono text-xs">
+                      {privacyResult.connectionCount} connections
+                    </Badge>
+                    {privacyResult.trackerCount > 0 && (
+                      <Badge variant="outline" className="font-mono text-xs border-red-500/30 text-red-400">
+                        {privacyResult.trackerCount} tracker(s) active
+                      </Badge>
+                    )}
+                  </>
+                )}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={runPrivacyScan} disabled={privacyScanning}>
+                  {privacyScanning ? "..." : "Re-scan"}
+                </Button>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={() => setShowPrivacy(false)}>
+                  Close
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              {privacyScanning && !privacyResult ? (
+                <div className="py-8 text-center text-sm text-muted-foreground font-mono animate-pulse">
+                  Checking network connections, trackers, permissions, and browser data...
+                </div>
+              ) : privacyResult ? (
+                <ScrollArea className="h-[420px]">
+                  <div className="space-y-2 pr-3">
+                    {privacyResult.findings.length === 0 ? (
+                      <div className="py-4 text-center text-sm text-emerald-400 font-mono">
+                        No privacy concerns found. Your system looks clean.
+                      </div>
+                    ) : (
+                      privacyResult.findings.map((finding, i) => (
+                        <div
+                          key={i}
+                          className={`rounded border px-3 py-2.5 space-y-1.5 ${
+                            finding.severity === "critical"
+                              ? "bg-red-500/8 border-red-500/25"
+                              : finding.severity === "high"
+                              ? "bg-red-500/5 border-red-500/20"
+                              : finding.severity === "medium"
+                              ? "bg-amber-500/5 border-amber-500/20"
+                              : finding.severity === "low"
+                              ? "bg-muted/40 border-border"
+                              : "bg-muted/20 border-border"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                              finding.severity === "critical" || finding.severity === "high" ? "bg-red-500" :
+                              finding.severity === "medium" ? "bg-amber-500" :
+                              finding.severity === "low" ? "bg-blue-400" : "bg-muted-foreground"
+                            }`} />
+                            <span className="text-xs font-mono font-medium">{finding.title}</span>
+                            <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0">{finding.category}</Badge>
+                            <Badge variant="outline" className={`font-mono text-[10px] px-1.5 py-0 ${
+                              finding.severity === "critical" || finding.severity === "high"
+                                ? "border-red-500/30 text-red-400"
+                                : finding.severity === "medium"
+                                ? "border-amber-500/30 text-amber-400"
+                                : ""
+                            }`}>{finding.severity}</Badge>
+                          </div>
+                          {finding.items.length > 0 && (
+                            <div className="pl-3.5 space-y-0.5">
+                              {finding.items.slice(0, 6).map((item, j) => (
+                                <p key={j} className="text-xs text-muted-foreground font-mono truncate" title={item}>
+                                  {item}
+                                </p>
+                              ))}
+                              {finding.items.length > 6 && (
+                                <p className="text-xs text-muted-foreground/60 font-mono">+{finding.items.length - 6} more</p>
+                              )}
+                            </div>
+                          )}
+                          <p className="text-xs font-mono pl-3.5">
+                            <span className="text-emerald-400/80">Fix:</span>{" "}
+                            <span className="text-muted-foreground">{finding.recommendation}</span>
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              ) : null}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Cleanup Results */}
         {showCleanup && (
