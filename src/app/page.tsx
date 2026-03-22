@@ -25,6 +25,29 @@ interface HistoryPoint {
   load: number;
 }
 
+interface ScanFinding {
+  severity: "critical" | "warning" | "info";
+  category: string;
+  title: string;
+  detail: string;
+  processes: { pid: number; name: string; cpu: number; mem: number; rss: number }[];
+  recommendation: string;
+}
+
+interface ScanResult {
+  healthScore: number;
+  findings: ScanFinding[];
+  summary: {
+    totalProcesses: number;
+    electronApps: number;
+    electronProcesses: number;
+    browsers: number;
+    launchItems: number;
+    swapUsedMB: number;
+  };
+  timestamp: number;
+}
+
 interface ProcessAlert {
   pid: number;
   command: string;
@@ -178,7 +201,25 @@ export default function Dashboard() {
   const [refreshInterval, setRefreshInterval] = useState(3000);
   const [killingPid, setKillingPid] = useState<number | null>(null);
   const [killMessage, setKillMessage] = useState<{ pid: number; success: boolean; error?: string } | null>(null);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [showScan, setShowScan] = useState(false);
   const [, startTransition] = useTransition();
+
+  const runScan = useCallback(async () => {
+    setScanning(true);
+    setShowScan(true);
+    try {
+      const res = await fetch("/api/scan", { cache: "no-store" });
+      if (!res.ok) throw new Error("Scan failed");
+      const data = await res.json();
+      setScanResult(data);
+    } catch {
+      setScanResult(null);
+    } finally {
+      setScanning(false);
+    }
+  }, []);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -255,6 +296,15 @@ export default function Dashboard() {
             <option value={5000}>5s</option>
             <option value={10000}>10s</option>
           </select>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-3 text-xs font-mono"
+            onClick={runScan}
+            disabled={scanning}
+          >
+            {scanning ? "Scanning..." : "Scan System"}
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -413,6 +463,112 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Scan Results */}
+        {showScan && (
+          <Card className="border-border">
+            <CardHeader className="pb-2 pt-3 px-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
+                System Scan
+                {scanResult && (
+                  <Badge
+                    variant="outline"
+                    className={`font-mono text-xs ${
+                      scanResult.healthScore >= 80
+                        ? "border-emerald-500/30 text-emerald-400"
+                        : scanResult.healthScore >= 50
+                        ? "border-amber-500/30 text-amber-400"
+                        : "border-red-500/30 text-red-400"
+                    }`}
+                  >
+                    Health: {scanResult.healthScore}/100
+                  </Badge>
+                )}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={runScan} disabled={scanning}>
+                  {scanning ? "..." : "Re-scan"}
+                </Button>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={() => setShowScan(false)}>
+                  Close
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              {scanning && !scanResult ? (
+                <div className="py-8 text-center text-sm text-muted-foreground font-mono animate-pulse">
+                  Analyzing processes, launch agents, and resource usage...
+                </div>
+              ) : scanResult ? (
+                <div className="space-y-3">
+                  {/* Summary chips */}
+                  <div className="flex flex-wrap gap-2 pb-2 border-b border-border">
+                    <Badge variant="outline" className="font-mono text-xs">{scanResult.summary.totalProcesses} processes</Badge>
+                    <Badge variant="outline" className="font-mono text-xs">{scanResult.summary.electronApps} Electron apps ({scanResult.summary.electronProcesses} procs)</Badge>
+                    <Badge variant="outline" className="font-mono text-xs">{scanResult.summary.browsers} browser{scanResult.summary.browsers !== 1 ? "s" : ""}</Badge>
+                    <Badge variant="outline" className="font-mono text-xs">{scanResult.summary.launchItems} startup items</Badge>
+                    <Badge variant="outline" className={`font-mono text-xs ${scanResult.summary.swapUsedMB > 100 ? "border-amber-500/30 text-amber-400" : ""}`}>
+                      {scanResult.summary.swapUsedMB}MB swap
+                    </Badge>
+                  </div>
+
+                  {/* Findings */}
+                  {scanResult.findings.length === 0 ? (
+                    <div className="py-4 text-center text-sm text-emerald-400 font-mono">
+                      System looks clean. No issues found.
+                    </div>
+                  ) : (
+                    <ScrollArea className="max-h-[400px]">
+                      <div className="space-y-2">
+                        {scanResult.findings.map((finding, i) => (
+                          <div
+                            key={i}
+                            className={`rounded border px-3 py-2.5 space-y-1.5 ${
+                              finding.severity === "critical"
+                                ? "bg-red-500/5 border-red-500/20"
+                                : finding.severity === "warning"
+                                ? "bg-amber-500/5 border-amber-500/20"
+                                : "bg-muted/30 border-border"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                  finding.severity === "critical" ? "bg-red-500" :
+                                  finding.severity === "warning" ? "bg-amber-500" : "bg-muted-foreground"
+                                }`} />
+                                <span className="text-xs font-mono font-medium">{finding.title}</span>
+                                <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0">{finding.category}</Badge>
+                              </div>
+                              {finding.processes.length > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 px-2 text-[10px] font-mono text-red-400 hover:text-red-300 hover:bg-red-500/10 flex-shrink-0"
+                                  onClick={() => {
+                                    const proc = finding.processes[0];
+                                    handleKill(proc.pid, proc.name);
+                                  }}
+                                >
+                                  kill main
+                                </Button>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground font-mono leading-relaxed pl-3.5">{finding.detail}</p>
+                            <p className="text-xs font-mono pl-3.5">
+                              <span className="text-emerald-400/80">Recommendation:</span>{" "}
+                              <span className="text-muted-foreground">{finding.recommendation}</span>
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Process Table */}
         <Card className="border-border">
