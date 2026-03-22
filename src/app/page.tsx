@@ -15,6 +15,23 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { killProcess, stopServer } from "./actions";
 
+// --- Types ---
+
+interface HistoryPoint {
+  ts: number;
+  cpu: number;
+  mem: number;
+  swap: number;
+  load: number;
+}
+
+interface ProcessAlert {
+  pid: number;
+  command: string;
+  cpu: number;
+  duration: number;
+}
+
 interface SystemStats {
   cpu: { user: number; system: number; idle: number; used: number; model: string; cores: number };
   load: number[];
@@ -24,6 +41,8 @@ interface SystemStats {
   processes: { total: number; threads: number; top: ProcessInfo[] };
   uptime: string;
   battery: { percent: number; charging: boolean } | null;
+  history: HistoryPoint[];
+  alerts: ProcessAlert[];
   timestamp: number;
 }
 
@@ -36,12 +55,23 @@ interface ProcessInfo {
   command: string;
 }
 
+// --- Utilities ---
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const min = Math.floor(seconds / 60);
+  const sec = seconds % 60;
+  return `${min}m${sec > 0 ? ` ${sec}s` : ""}`;
+}
+
+// --- Components ---
 
 function StatusDot({ level }: { level: "ok" | "warn" | "critical" }) {
   const colors = {
@@ -67,13 +97,88 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
   );
 }
 
+function Sparkline({
+  data,
+  max,
+  color,
+  warnAt,
+  critAt,
+  width = 200,
+  height = 40,
+}: {
+  data: number[];
+  max: number;
+  color: string;
+  warnAt?: number;
+  critAt?: number;
+  width?: number;
+  height?: number;
+}) {
+  if (data.length < 2) {
+    return (
+      <div style={{ width, height }} className="flex items-center justify-center text-xs text-muted-foreground font-mono">
+        collecting...
+      </div>
+    );
+  }
+
+  const padding = 2;
+  const h = height - padding * 2;
+  const w = width - padding * 2;
+  const step = w / (data.length - 1);
+  const clampMax = Math.max(max, Math.max(...data) * 1.1) || 1;
+
+  const points = data.map((v, i) => {
+    const x = padding + i * step;
+    const y = padding + h - (Math.min(v, clampMax) / clampMax) * h;
+    return `${x},${y}`;
+  }).join(" ");
+
+  // Gradient fill area
+  const areaPoints = `${padding},${padding + h} ${points} ${padding + (data.length - 1) * step},${padding + h}`;
+
+  return (
+    <svg width={width} height={height} className="overflow-visible">
+      {/* Threshold lines */}
+      {warnAt !== undefined && (
+        <line
+          x1={padding} y1={padding + h - (warnAt / clampMax) * h}
+          x2={padding + w} y2={padding + h - (warnAt / clampMax) * h}
+          stroke="oklch(0.828 0.189 84.429)" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.4"
+        />
+      )}
+      {critAt !== undefined && (
+        <line
+          x1={padding} y1={padding + h - (critAt / clampMax) * h}
+          x2={padding + w} y2={padding + h - (critAt / clampMax) * h}
+          stroke="oklch(0.704 0.191 22.216)" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.4"
+        />
+      )}
+      {/* Fill */}
+      <polygon points={areaPoints} fill={color} opacity="0.1" />
+      {/* Line */}
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Current value dot */}
+      {data.length > 0 && (
+        <circle
+          cx={padding + (data.length - 1) * step}
+          cy={padding + h - (Math.min(data[data.length - 1], clampMax) / clampMax) * h}
+          r="2.5" fill={color}
+        />
+      )}
+    </svg>
+  );
+}
+
+// --- Main Dashboard ---
+
 export default function Dashboard() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshInterval, setRefreshInterval] = useState(3000);
   const [killingPid, setKillingPid] = useState<number | null>(null);
   const [killMessage, setKillMessage] = useState<{ pid: number; success: boolean; error?: string } | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const fetchStats = useCallback(async () => {
     try {
@@ -118,6 +223,14 @@ export default function Dashboard() {
   const loadLevel = getLevel(stats.load[0], stats.cpu.cores * 0.8, stats.cpu.cores * 1.2);
   const diskLevel = getLevel(stats.disk.percent, 80, 95);
 
+  const cpuHistory = stats.history?.map((h) => h.cpu) || [];
+  const memHistory = stats.history?.map((h) => h.mem) || [];
+  const swapHistory = stats.history?.map((h) => h.swap) || [];
+  const loadHistory = stats.history?.map((h) => h.load) || [];
+
+  const sparkColor = (level: "ok" | "warn" | "critical") =>
+    level === "critical" ? "oklch(0.704 0.191 22.216)" : level === "warn" ? "oklch(0.828 0.189 84.429)" : "oklch(0.765 0.177 163.223)";
+
   return (
     <div className="dark min-h-screen bg-background text-foreground">
       {/* Header */}
@@ -156,6 +269,34 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {/* Process Alerts */}
+      {stats.alerts && stats.alerts.length > 0 && (
+        <div className="mx-6 mt-3 space-y-2">
+          {stats.alerts.map((alert) => (
+            <div
+              key={alert.pid}
+              className="flex items-center justify-between px-3 py-2 rounded bg-red-500/10 border border-red-500/20 text-xs font-mono"
+            >
+              <div className="flex items-center gap-3">
+                <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-red-400">
+                  <span className="font-bold">{alert.command}</span> (PID {alert.pid}) stuck at {alert.cpu.toFixed(0)}% CPU for {formatDuration(alert.duration)}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs font-mono text-red-400 hover:text-red-300 hover:bg-red-500/20"
+                onClick={() => handleKill(alert.pid, alert.command)}
+                disabled={killingPid === alert.pid}
+              >
+                {killingPid === alert.pid ? "..." : "kill"}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Kill feedback */}
       {killMessage && (
         <div className={`mx-6 mt-3 px-3 py-2 rounded text-xs font-mono ${killMessage.success ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
@@ -171,89 +312,103 @@ export default function Dashboard() {
 
       <main className="p-6 space-y-4">
         {/* Stats Cards Row */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {/* CPU */}
           <Card className="border-border">
-            <CardHeader className="pb-2 pt-3 px-4">
+            <CardHeader className="pb-1 pt-3 px-4">
               <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
                 <StatusDot level={cpuLevel} /> CPU
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-3 space-y-2">
-              <div className="text-2xl font-mono font-bold tabular-nums">{stats.cpu.used.toFixed(1)}%</div>
-              <MiniBar value={stats.cpu.used} max={100} color={cpuLevel === "critical" ? "bg-red-500" : cpuLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
-              <div className="text-xs text-muted-foreground font-mono">
-                {stats.cpu.user.toFixed(0)}% usr / {stats.cpu.system.toFixed(0)}% sys
+            <CardContent className="px-4 pb-3 space-y-1">
+              <div className="flex items-end justify-between">
+                <div className="text-2xl font-mono font-bold tabular-nums">{stats.cpu.used.toFixed(1)}%</div>
+                <div className="text-xs text-muted-foreground font-mono">
+                  {stats.cpu.user.toFixed(0)}% usr / {stats.cpu.system.toFixed(0)}% sys
+                </div>
               </div>
+              <MiniBar value={stats.cpu.used} max={100} color={cpuLevel === "critical" ? "bg-red-500" : cpuLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
+              <Sparkline data={cpuHistory} max={100} color={sparkColor(cpuLevel)} warnAt={60} critAt={85} width={280} height={48} />
             </CardContent>
           </Card>
 
           {/* Memory */}
           <Card className="border-border">
-            <CardHeader className="pb-2 pt-3 px-4">
+            <CardHeader className="pb-1 pt-3 px-4">
               <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
                 <StatusDot level={memLevel} /> Memory
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-3 space-y-2">
-              <div className="text-2xl font-mono font-bold tabular-nums">{stats.memory.usedGB}G <span className="text-sm text-muted-foreground">/ {stats.memory.totalGB}G</span></div>
-              <MiniBar value={stats.memory.usedGB} max={stats.memory.totalGB} color={memLevel === "critical" ? "bg-red-500" : memLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
-              <div className="text-xs text-muted-foreground font-mono">
-                {stats.memory.wiredGB}G wired / {stats.memory.compressorGB}G compressed
+            <CardContent className="px-4 pb-3 space-y-1">
+              <div className="flex items-end justify-between">
+                <div className="text-2xl font-mono font-bold tabular-nums">{stats.memory.usedGB}G <span className="text-sm text-muted-foreground">/ {stats.memory.totalGB}G</span></div>
+                <div className="text-xs text-muted-foreground font-mono">
+                  {stats.memory.wiredGB}G wired / {stats.memory.compressorGB}G comp
+                </div>
               </div>
+              <MiniBar value={stats.memory.usedGB} max={stats.memory.totalGB} color={memLevel === "critical" ? "bg-red-500" : memLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
+              <Sparkline data={memHistory} max={100} color={sparkColor(memLevel)} warnAt={70} critAt={90} width={280} height={48} />
             </CardContent>
           </Card>
 
           {/* Swap */}
           <Card className="border-border">
-            <CardHeader className="pb-2 pt-3 px-4">
+            <CardHeader className="pb-1 pt-3 px-4">
               <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
                 <StatusDot level={swapLevel} /> Swap
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-3 space-y-2">
-              <div className="text-2xl font-mono font-bold tabular-nums">
-                {stats.swap.usedMB < 1024 ? `${stats.swap.usedMB}M` : `${(stats.swap.usedMB / 1024).toFixed(1)}G`}
+            <CardContent className="px-4 pb-3 space-y-1">
+              <div className="flex items-end justify-between">
+                <div className="text-2xl font-mono font-bold tabular-nums">
+                  {stats.swap.usedMB < 1024 ? `${stats.swap.usedMB}M` : `${(stats.swap.usedMB / 1024).toFixed(1)}G`}
+                </div>
+                <div className="text-xs text-muted-foreground font-mono">
+                  {stats.swap.totalMB > 0 ? `${stats.swap.totalMB}M total` : "None allocated"}
+                </div>
               </div>
               {stats.swap.totalMB > 0 ? (
                 <MiniBar value={stats.swap.usedMB} max={stats.swap.totalMB} color={swapLevel === "critical" ? "bg-red-500" : swapLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
               ) : (
                 <div className="h-2 w-full rounded-full bg-muted" />
               )}
-              <div className="text-xs text-muted-foreground font-mono">
-                {stats.swap.totalMB > 0 ? `${stats.swap.totalMB}M total` : "None allocated"}
-              </div>
+              <Sparkline data={swapHistory} max={Math.max(4096, ...swapHistory)} color={sparkColor(swapLevel)} warnAt={100} critAt={2000} width={280} height={48} />
             </CardContent>
           </Card>
 
           {/* Load */}
           <Card className="border-border">
-            <CardHeader className="pb-2 pt-3 px-4">
+            <CardHeader className="pb-1 pt-3 px-4">
               <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
                 <StatusDot level={loadLevel} /> Load
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-3 space-y-2">
-              <div className="text-2xl font-mono font-bold tabular-nums">{stats.load[0].toFixed(1)}</div>
-              <MiniBar value={stats.load[0]} max={stats.cpu.cores * 2} color={loadLevel === "critical" ? "bg-red-500" : loadLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
-              <div className="text-xs text-muted-foreground font-mono">
-                {stats.load.map((l) => l.toFixed(1)).join(" / ")} ({stats.cpu.cores} cores)
+            <CardContent className="px-4 pb-3 space-y-1">
+              <div className="flex items-end justify-between">
+                <div className="text-2xl font-mono font-bold tabular-nums">{stats.load[0].toFixed(1)}</div>
+                <div className="text-xs text-muted-foreground font-mono">
+                  {stats.load.map((l) => l.toFixed(1)).join(" / ")} ({stats.cpu.cores} cores)
+                </div>
               </div>
+              <MiniBar value={stats.load[0]} max={stats.cpu.cores * 2} color={loadLevel === "critical" ? "bg-red-500" : loadLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
+              <Sparkline data={loadHistory} max={stats.cpu.cores * 2} color={sparkColor(loadLevel)} warnAt={stats.cpu.cores * 0.8} critAt={stats.cpu.cores * 1.2} width={280} height={48} />
             </CardContent>
           </Card>
+        </div>
 
-          {/* Disk */}
-          <Card className="border-border">
-            <CardHeader className="pb-2 pt-3 px-4">
-              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
-                <StatusDot level={diskLevel} /> Disk
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-3 space-y-2">
-              <div className="text-2xl font-mono font-bold tabular-nums">{stats.disk.percent}%</div>
-              <MiniBar value={stats.disk.percent} max={100} color={diskLevel === "critical" ? "bg-red-500" : diskLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
-              <div className="text-xs text-muted-foreground font-mono">
-                {stats.disk.used} / {stats.disk.total}
+        {/* Disk (small) */}
+        <div className="grid grid-cols-4 gap-3">
+          <Card className="border-border col-span-1">
+            <CardContent className="px-4 py-3 flex items-center gap-4">
+              <div>
+                <div className="text-xs font-mono text-muted-foreground flex items-center gap-2 mb-1">
+                  <StatusDot level={diskLevel} /> Disk
+                </div>
+                <div className="text-lg font-mono font-bold tabular-nums">{stats.disk.percent}%</div>
+                <div className="text-xs text-muted-foreground font-mono">{stats.disk.used} / {stats.disk.total}</div>
+              </div>
+              <div className="flex-1">
+                <MiniBar value={stats.disk.percent} max={100} color={diskLevel === "critical" ? "bg-red-500" : diskLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
               </div>
             </CardContent>
           </Card>
@@ -285,10 +440,12 @@ export default function Dashboard() {
                     const cpuHot = proc.cpu > 50;
                     const cpuWarm = proc.cpu > 20;
                     const memHot = proc.mem > 5;
+                    const isAlerted = stats.alerts?.some((a) => a.pid === proc.pid);
                     return (
-                      <TableRow key={proc.pid} className="border-border hover:bg-muted/50 group">
+                      <TableRow key={proc.pid} className={`border-border hover:bg-muted/50 group ${isAlerted ? "bg-red-500/5" : ""}`}>
                         <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">{proc.pid}</TableCell>
                         <TableCell className="font-mono text-xs truncate max-w-[300px]" title={proc.command}>
+                          {isAlerted && <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 mr-2 animate-pulse" />}
                           {proc.command}
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">{proc.user}</TableCell>
@@ -305,7 +462,7 @@ export default function Dashboard() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-6 px-2 text-xs font-mono opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                            className={`h-6 px-2 text-xs font-mono transition-opacity text-red-400 hover:text-red-300 hover:bg-red-500/10 ${isAlerted ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
                             onClick={() => handleKill(proc.pid, proc.command)}
                             disabled={killingPid === proc.pid}
                           >
