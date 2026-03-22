@@ -13,9 +13,30 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { killProcess, stopServer } from "./actions";
+import { killProcess, stopServer, cleanupItem } from "./actions";
 
 // --- Types ---
+
+interface CleanupItem {
+  id: string;
+  category: string;
+  name: string;
+  path: string;
+  size: number;
+  sizeFormatted: string;
+  fileCount: number;
+  description: string;
+  risk: "safe" | "low" | "medium";
+  command: string;
+}
+
+interface CleanupResult {
+  items: CleanupItem[];
+  largeCaches: { name: string; size: number; path: string }[];
+  totalSize: number;
+  totalFormatted: string;
+  timestamp: number;
+}
 
 interface HistoryPoint {
   ts: number;
@@ -204,6 +225,11 @@ export default function Dashboard() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [scanning, setScanning] = useState(false);
   const [showScan, setShowScan] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
+  const [showCleanup, setShowCleanup] = useState(false);
+  const [cleanedItems, setCleanedItems] = useState<Set<string>>(new Set());
+  const [cleaningId, setCleaningId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const runScan = useCallback(async () => {
@@ -220,6 +246,34 @@ export default function Dashboard() {
       setScanning(false);
     }
   }, []);
+
+  const runCleanup = useCallback(async () => {
+    setCleaningUp(true);
+    setShowCleanup(true);
+    setCleanedItems(new Set());
+    try {
+      const res = await fetch("/api/cleanup", { cache: "no-store" });
+      if (!res.ok) throw new Error("Cleanup scan failed");
+      const data = await res.json();
+      setCleanupResult(data);
+    } catch {
+      setCleanupResult(null);
+    } finally {
+      setCleaningUp(false);
+    }
+  }, []);
+
+  const handleClean = async (item: CleanupItem) => {
+    if (!confirm(`Clean "${item.name}"?\n\nThis will free ${item.sizeFormatted}.\nPath: ${item.path}\n\nRisk: ${item.risk}`)) return;
+    setCleaningId(item.id);
+    const result = await cleanupItem(item.command);
+    if (result.success) {
+      setCleanedItems((prev) => new Set(prev).add(item.id));
+    } else {
+      alert(result.error);
+    }
+    setCleaningId(null);
+  };
 
   const fetchStats = useCallback(async () => {
     try {
@@ -304,6 +358,15 @@ export default function Dashboard() {
             disabled={scanning}
           >
             {scanning ? "Scanning..." : "Scan System"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-3 text-xs font-mono"
+            onClick={runCleanup}
+            disabled={cleaningUp}
+          >
+            {cleaningUp ? "Scanning..." : "Cleanup"}
           </Button>
           <Button
             variant="ghost"
@@ -463,6 +526,111 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Cleanup Results */}
+        {showCleanup && (
+          <Card className="border-border">
+            <CardHeader className="pb-2 pt-3 px-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
+                Disk Cleanup
+                {cleanupResult && (
+                  <Badge variant="outline" className="font-mono text-xs border-emerald-500/30 text-emerald-400">
+                    {cleanupResult.totalFormatted} reclaimable
+                  </Badge>
+                )}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={runCleanup} disabled={cleaningUp}>
+                  {cleaningUp ? "..." : "Re-scan"}
+                </Button>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={() => setShowCleanup(false)}>
+                  Close
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              {cleaningUp && !cleanupResult ? (
+                <div className="py-8 text-center text-sm text-muted-foreground font-mono animate-pulse">
+                  Scanning caches, logs, dev tools, and temp files...
+                </div>
+              ) : cleanupResult ? (
+                <div className="space-y-3">
+                  {cleanupResult.items.length === 0 ? (
+                    <div className="py-4 text-center text-sm text-emerald-400 font-mono">
+                      System is clean. Nothing significant to clear.
+                    </div>
+                  ) : (
+                    <ScrollArea className="h-[420px]">
+                      <div className="space-y-1.5 pr-3">
+                        {/* Group by category */}
+                        {Array.from(new Set(cleanupResult.items.map((i) => i.category))).map((cat) => {
+                          const catItems = cleanupResult.items.filter((i) => i.category === cat);
+                          const catSize = catItems.reduce((s, i) => s + i.size, 0);
+                          return (
+                            <div key={cat}>
+                              <div className="flex items-center justify-between py-1.5 border-b border-border mb-1.5">
+                                <span className="text-xs font-mono font-medium text-muted-foreground">{cat}</span>
+                                <span className="text-xs font-mono text-muted-foreground">{formatBytes(catSize)}</span>
+                              </div>
+                              {catItems.map((item) => {
+                                const isCleaned = cleanedItems.has(item.id);
+                                const isCleaning = cleaningId === item.id;
+                                return (
+                                  <div
+                                    key={item.id}
+                                    className={`rounded border px-3 py-2 flex items-start justify-between gap-3 ${
+                                      isCleaned
+                                        ? "bg-emerald-500/5 border-emerald-500/20 opacity-60"
+                                        : item.risk === "medium"
+                                        ? "bg-amber-500/5 border-amber-500/20"
+                                        : "bg-muted/30 border-border"
+                                    }`}
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-mono font-medium">
+                                          {isCleaned ? "Cleaned" : item.name}
+                                        </span>
+                                        <span className="text-xs font-mono font-bold tabular-nums text-emerald-400">
+                                          {item.sizeFormatted}
+                                        </span>
+                                        {item.risk === "medium" && (
+                                          <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0 border-amber-500/30 text-amber-400">review first</Badge>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate" title={item.path}>
+                                        {item.description}
+                                      </p>
+                                      <p className="text-[10px] text-muted-foreground/60 font-mono mt-0.5 truncate" title={item.path}>
+                                        {item.path} — {item.fileCount.toLocaleString()} files
+                                      </p>
+                                    </div>
+                                    {!isCleaned && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs font-mono text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 flex-shrink-0"
+                                        onClick={() => handleClean(item)}
+                                        disabled={isCleaning || item.command.startsWith("sudo")}
+                                        title={item.command.startsWith("sudo") ? "Requires sudo — run manually" : ""}
+                                      >
+                                        {isCleaning ? "..." : item.command.startsWith("sudo") ? "needs sudo" : "clean"}
+                                      </Button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Scan Results */}
         {showScan && (
