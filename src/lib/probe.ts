@@ -17,6 +17,13 @@ const pExecFile = promisify(execFile);
  */
 export type Probe<T> =
   | { status: "ok"; value: T }
+  /**
+   * The command failed but still produced usable output — `du` walking a tree
+   * containing unreadable subdirectories, for example. The value is a lower
+   * bound, and `reason` records why it is incomplete. Reporting a flagged
+   * partial beats both silently trusting it and discarding it outright.
+   */
+  | { status: "partial"; value: T; reason: "timeout" | "denied" | "failed" }
   | { status: "timeout" }
   | { status: "denied" }
   | { status: "unsupported" }
@@ -43,19 +50,26 @@ export async function probe(
       killed?: boolean;
       signal?: string | null;
       stderr?: string;
+      stdout?: string;
     };
-    if (e.killed || e.signal === "SIGTERM") return { status: "timeout" };
     if (e.code === "ENOENT") return { status: "unsupported" };
-    if (e.code === "EACCES" || e.code === "EPERM") return { status: "denied" };
 
+    const partial = (e.stdout ?? "").trim();
     const stderr = (e.stderr ?? "").toLowerCase();
-    if (
+    const denied =
+      e.code === "EACCES" ||
+      e.code === "EPERM" ||
       stderr.includes("authorization denied") ||
       stderr.includes("operation not permitted") ||
-      stderr.includes("permission denied")
-    ) {
-      return { status: "denied" };
-    }
+      stderr.includes("permission denied");
+
+    const reason: "timeout" | "denied" | "failed" =
+      e.killed || e.signal === "SIGTERM" ? "timeout" : denied ? "denied" : "failed";
+
+    if (partial.length > 0) return { status: "partial", value: partial, reason };
+
+    if (reason === "timeout") return { status: "timeout" };
+    if (reason === "denied") return { status: "denied" };
     return { status: "failed", error: e.message ?? "unknown error" };
   }
 }
@@ -67,6 +81,13 @@ export function valueOr<T>(p: Probe<T>, fallback: T): T {
 
 export function isOk<T>(p: Probe<T>): p is { status: "ok"; value: T } {
   return p.status === "ok";
+}
+
+/** True when a value is present, whether complete or a flagged lower bound. */
+export function hasValue<T>(
+  p: Probe<T>,
+): p is { status: "ok"; value: T } | { status: "partial"; value: T; reason: "timeout" | "denied" | "failed" } {
+  return p.status === "ok" || p.status === "partial";
 }
 
 /**

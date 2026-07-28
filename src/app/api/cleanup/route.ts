@@ -1,9 +1,12 @@
+import { stat } from "node:fs/promises";
+
 import { NextResponse } from "next/server";
 
 import { CLEANUP_TARGETS, type CleanupTarget } from "@/lib/cleanup-targets";
 import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
-import { finiteInt, probe, type ProbeStatus } from "@/lib/probe";
+import { finiteInt, hasValue, probe, type ProbeStatus } from "@/lib/probe";
 import { formatBytes } from "@/lib/format";
+import { mapLimit } from "@/lib/pool";
 import { singleFlight } from "@/lib/single-flight";
 
 /**
@@ -17,6 +20,7 @@ import { singleFlight } from "@/lib/single-flight";
  */
 
 const SCAN_TIMEOUT_MS = 20_000;
+const SCAN_CONCURRENCY = 4;
 
 export interface CleanupItemDTO {
   id: string;
@@ -37,12 +41,20 @@ interface Measured {
 }
 
 async function measure(target: CleanupTarget): Promise<Measured> {
+  // An absent optional target is simply not present — it is not a failed check,
+  // and reporting it as one would bury the checks that genuinely could not run.
+  try {
+    await stat(target.absPath);
+  } catch {
+    return { item: null, unavailable: null };
+  }
+
   const [sizeRes, countRes] = await Promise.all([
     probe("du", ["-sk", target.absPath], SCAN_TIMEOUT_MS),
     probe("find", [target.absPath, "-type", "f"], SCAN_TIMEOUT_MS),
   ]);
 
-  if (sizeRes.status !== "ok") {
+  if (!hasValue(sizeRes)) {
     // A timeout or denial previously became "" -> 0, dropping the item below the
     // size threshold so it vanished from the list without a word (H-03).
     return {
@@ -55,8 +67,14 @@ async function measure(target: CleanupTarget): Promise<Measured> {
   const size = kb * 1024;
   if (size < target.minSize) return { item: null, unavailable: null };
 
-  const fileCount =
-    countRes.status === "ok" ? countRes.value.split("\n").filter(Boolean).length : null;
+  const fileCount = hasValue(countRes)
+    ? countRes.value.split("\n").filter(Boolean).length
+    : null;
+
+  // A partial measurement is shown, but declared as a lower bound.
+  const sizePartial = sizeRes.status === "partial"
+    ? { check: `${target.name} (size, partial — some paths unreadable)`, reason: sizeRes.reason as ProbeStatus }
+    : null;
 
   return {
     item: {
@@ -72,14 +90,16 @@ async function measure(target: CleanupTarget): Promise<Measured> {
       requiresRoot: target.requiresRoot,
     },
     unavailable:
-      countRes.status === "ok"
+      sizePartial ??
+      (hasValue(countRes)
         ? null
-        : { check: `${target.name} (file count)`, reason: countRes.status },
+        : { check: `${target.name} (file count)`, reason: countRes.status }),
   };
 }
 
 async function scan() {
-  const measured = await Promise.all(CLEANUP_TARGETS.map(measure));
+  // Bounded so a cleanup scan cannot saturate disk I/O and slow other requests.
+  const measured = await mapLimit(CLEANUP_TARGETS, SCAN_CONCURRENCY, measure);
 
   const items = measured
     .map((m) => m.item)

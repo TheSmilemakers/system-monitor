@@ -2,7 +2,7 @@ import {
   finiteInt,
   finiteNumber,
   getMachineInfo,
-  isOk,
+  hasValue,
   probe,
   round,
   type ProbeStatus,
@@ -141,7 +141,7 @@ export async function sample(): Promise<StatsSample> {
   note("uptime", upRes.status);
 
   // --- CPU + load ---
-  const topOut = isOk(topRes) ? topRes.value : "";
+  const topOut = hasValue(topRes) ? topRes.value : "";
   const loadMatch = topOut.match(/Load Avg:\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)/);
   const cpuMatch = topOut.match(/CPU usage:\s*([\d.]+)% user,\s*([\d.]+)% sys,\s*([\d.]+)% idle/);
   const procMatch = topOut.match(/Processes:\s*(\d+) total/);
@@ -156,7 +156,7 @@ export async function sample(): Promise<StatsSample> {
   const cpuUsed = cpuUser + cpuSys;
 
   // --- Memory (page size read from the machine, not hardcoded — M-16) ---
-  const vm = isOk(vmRes) ? vmRes.value : "";
+  const vm = hasValue(vmRes) ? vmRes.value : "";
   const pageSize = machine.pageSize;
   const pagesActive = parseVmStat(vm, "Pages active");
   const pagesWired = parseVmStat(vm, "Pages wired down");
@@ -167,18 +167,18 @@ export async function sample(): Promise<StatsSample> {
   const memPercent = totalRamGB > 0 ? Math.round((usedGB / totalRamGB) * 100) : 0;
 
   // --- Swap ---
-  const swapRaw = isOk(swapRes) ? swapRes.value : "";
+  const swapRaw = hasValue(swapRes) ? swapRes.value : "";
   const swapUsedMB = finiteNumber(swapRaw.match(/used\s*=\s*([\d.]+)M/)?.[1], 0);
   const swapTotalMB = finiteNumber(swapRaw.match(/total\s*=\s*([\d.]+)M/)?.[1], 0);
 
   // --- Disk ---
-  const dfParts = (isOk(dfRes) ? dfRes.value : "").split("\n").slice(-1)[0]?.split(/\s+/) ?? [];
+  const dfParts = (hasValue(dfRes) ? dfRes.value : "").split("\n").slice(-1)[0]?.split(/\s+/) ?? [];
 
   // --- Processes ---
-  const allProcs = isOk(psRes) ? parsePsAux(psRes.value, 20) : [];
+  const allProcs = hasValue(psRes) ? parsePsAux(psRes.value, 20) : [];
 
   // --- Battery ---
-  const battRaw = isOk(battRes) ? battRes.value : "";
+  const battRaw = hasValue(battRes) ? battRes.value : "";
   const battPct = battRaw.match(/(\d+)%/);
 
   const now = Date.now();
@@ -252,7 +252,7 @@ export async function sample(): Promise<StatsSample> {
       threads: threadMatch ? finiteInt(threadMatch[1], 0) : 0,
       top: allProcs,
     },
-    uptime: isOk(upRes)
+    uptime: hasValue(upRes)
       ? upRes.value.replace(/.*up\s+/, "").replace(/,\s*\d+ users?.*/, "").trim()
       : "",
     battery: battPct ? { percent: finiteInt(battPct[1], 0), charging: battRaw.includes("AC Power") } : null,

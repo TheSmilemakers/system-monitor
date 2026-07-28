@@ -5,6 +5,7 @@ import {
   finiteInt,
   finiteNumber,
   getMachineInfo,
+  hasValue,
   isOk,
   probe,
   round,
@@ -159,5 +160,39 @@ describe("H-02 — single-flight", () => {
   test("releases the slot even when the work throws", async () => {
     await expect(singleFlight("k3", async () => { throw new Error("boom"); })).rejects.toThrow("boom");
     expect(inFlightCount()).toBe(0);
+  });
+});
+
+describe("partial results are used but flagged", () => {
+  test("a failing command that still produced output returns partial", async () => {
+    // `du` over a tree containing an unreadable directory: exits non-zero,
+    // yet the total it did compute is a useful lower bound.
+    const r = await probe("sh", ["-c", "echo 1234; echo boom >&2; exit 1"]);
+    expect(r.status).toBe("partial");
+    if (r.status === "partial") {
+      expect(r.value).toBe("1234");
+      expect(["failed", "denied", "timeout"]).toContain(r.reason);
+    }
+  });
+
+  test("a failing command with no output stays a hard failure", async () => {
+    const r = await probe("false", []);
+    expect(r.status).toBe("failed");
+  });
+
+  test("hasValue accepts ok and partial, isOk only ok", async () => {
+    const partial = await probe("sh", ["-c", "echo x; exit 3"]);
+    expect(hasValue(partial)).toBe(true);
+    expect(isOk(partial)).toBe(false);
+
+    const ok = await probe("echo", ["y"]);
+    expect(hasValue(ok)).toBe(true);
+    expect(isOk(ok)).toBe(true);
+  });
+
+  test("permission-denied stderr is classified as denied", async () => {
+    const r = await probe("sh", ["-c", "echo partial; echo 'du: permission denied' >&2; exit 1"]);
+    expect(r.status).toBe("partial");
+    if (r.status === "partial") expect(r.reason).toBe("denied");
   });
 });

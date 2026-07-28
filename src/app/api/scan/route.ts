@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
-import { isOk, probe, type ProbeStatus } from "@/lib/probe";
+import { hasValue, isOk, probe, type ProbeStatus } from "@/lib/probe";
 import { parsePsAux } from "@/lib/sampler";
 import { healthScore } from "@/lib/scoring";
 import { singleFlight } from "@/lib/single-flight";
@@ -102,7 +102,7 @@ async function scan() {
   if (!isOk(swapRes)) unavailable.push({ check: "swap usage", reason: swapRes.status });
 
   // Without a process list there is nothing to score.
-  if (!isOk(psRes)) {
+  if (!hasValue(psRes)) {
     return {
       complete: false,
       healthScore: null,

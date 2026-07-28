@@ -147,6 +147,13 @@ function grepCode(re, files = srcFiles()) {
   return hits;
 }
 
+/** Remove comments but keep string literals (class names live in strings). */
+function stripComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
 /** Extract the body of a top-level object literal by name. */
 function objectBody(text, name) {
   const m = text.match(new RegExp(`const ${name}[^=]*=\\s*\\{([\\s\\S]*?)\\n\\};`));
@@ -519,29 +526,47 @@ const PHASES = {
         id: "P3-1",
         name: "first-load error is reachable (not masked by loading return)",
         check: () => {
-          const t = read("src/app/page.tsx") ?? "";
-          const hasStatus = /"idle"|'idle'/.test(t) && /"error"|'error'/.test(t);
-          const early = t.indexOf("if (!stats)");
-          const errIdx = t.search(/status === "error"|phase === "error"/);
-          const ok = hasStatus && (early === -1 || (errIdx !== -1 && errIdx < early));
-          return { pass: ok, detail: `state-machine:${hasStatus} error-before-loading-return:${early === -1 || errIdx < early}` };
+          const hook = read("src/hooks/use-polling.ts") ?? "";
+          const machine = ["idle", "loading", "success", "error"].every((s) =>
+            new RegExp(`"${s}"`).test(hook),
+          );
+
+          const page = read("src/app/page.tsx") ?? "";
+          const errIdx = page.search(/phase === "error"/);
+          // Anchor on the rendered loading UI itself — guard expressions like
+          // `if (!data)` also appear inside hooks and would match spuriously.
+          const loadIdx = page.search(/Loading system stats/);
+          const ordered = errIdx !== -1 && (loadIdx === -1 || errIdx < loadIdx);
+          const retry = /Retry|onClick=\{stats\.refresh\}/.test(page);
+
+          return {
+            pass: machine && ordered && retry,
+            detail: `state-machine:${machine} error-before-loading-return:${ordered} retry-offered:${retry}`,
+          };
         },
       },
       {
         id: "P3-2",
         name: "destructive controls remain visible to keyboard focus",
         check: () => {
-          const files = srcFiles(/\.tsx$/);
           const bad = [];
-          for (const f of files) {
-            const t = read(f) ?? "";
-            t.split("\n").forEach((line, i) => {
-              if (/opacity-0\b/.test(line) && !/focus-visible:opacity-100|focus-within:opacity-100|group-focus-within:opacity-100/.test(line)) {
+          let checked = 0;
+          for (const f of srcFiles(/\.tsx$/)) {
+            const lines = stripComments(read(f) ?? "").split("\n");
+            lines.forEach((line, i) => {
+              if (!/opacity-0\b/.test(line)) return;
+              checked++;
+              // A className may span several lines; inspect the enclosing element.
+              const win = lines.slice(Math.max(0, i - 10), i + 11).join(" ");
+              if (!/focus-visible:opacity-100|focus-within:opacity-100|group-focus-within:opacity-100/.test(win)) {
                 bad.push(`${f}:${i + 1}`);
               }
             });
           }
-          return { pass: bad.length === 0, detail: bad.join(", ") || "none hidden from focus" };
+          return {
+            pass: bad.length === 0,
+            detail: bad.join(", ") || `${checked} hidden control(s), all revealed on focus`,
+          };
         },
       },
       {

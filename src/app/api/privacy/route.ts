@@ -3,7 +3,7 @@ import os from "node:os";
 import { NextResponse } from "next/server";
 
 import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
-import { isOk, probe, type ProbeStatus } from "@/lib/probe";
+import { hasValue, isOk, probe, type ProbeStatus } from "@/lib/probe";
 import { remoteAddressOf, resolveAll } from "@/lib/resolve-host";
 import { privacyScore } from "@/lib/scoring";
 import { singleFlight } from "@/lib/single-flight";
@@ -88,7 +88,7 @@ async function scan() {
   let unknownCount = 0;
   let trackerCount = 0;
 
-  if (!isOk(lsofRes)) {
+  if (!hasValue(lsofRes)) {
     unavailable.push({ check: "network connections (lsof)", reason: lsofRes.status });
   } else {
     const conns = lsofRes.value
@@ -170,7 +170,7 @@ async function scan() {
   }
 
   // --- Suspicious processes ---
-  if (!isOk(psRes)) {
+  if (!hasValue(psRes)) {
     unavailable.push({ check: "process list (ps)", reason: psRes.status });
   } else {
     const keywords = ["keylog", "keystroke", "spyware", "surveillance", "sniff", "intercept", "meterpreter", "cobalt"];
