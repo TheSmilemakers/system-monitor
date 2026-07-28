@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "./shadcn-variants.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -126,5 +126,18 @@
   }
   html {
     @apply font-sans;
+  }
+}
+/* L-05: honour the OS reduced-motion preference. The dashboard uses several
+   indefinite pulse animations to signal alerts; these must not animate for
+   users who have asked for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

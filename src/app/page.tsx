@@ -1,424 +1,290 @@
 "use client";
 
-import { useEffect, useState, useCallback, useTransition } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useCallback, useMemo, useState } from "react";
+
+import { cleanupItem, killProcess, stopServer } from "./actions";
+import { ProcessTable } from "@/components/dashboard/process-table";
+import {
+  Panel,
+  ScorePill,
+  SEVERITY_LABEL,
+  UnavailableNotice,
+  severityCardClass,
+  severityDotClass,
+} from "@/components/dashboard/panel";
+import { Sparkline } from "@/components/dashboard/sparkline";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { killProcess, stopServer, cleanupItem } from "./actions";
+import { useOnDemand, usePolling } from "@/hooks/use-polling";
+import { formatBytes, formatDuration } from "@/lib/format";
+import {
+  parseCleanup,
+  parsePrivacy,
+  parseScan,
+  parseStats,
+  type CleanupItem,
+} from "@/lib/schemas";
 
-// --- Types ---
+type Level = "ok" | "warn" | "critical";
 
-interface PrivacyFinding {
-  severity: "critical" | "high" | "medium" | "low" | "info";
-  category: string;
-  title: string;
-  detail: string;
-  items: string[];
-  recommendation: string;
-}
+const LEVEL_TEXT: Record<Level, string> = {
+  ok: "normal",
+  warn: "elevated",
+  critical: "critical",
+};
 
-interface PrivacyResult {
-  privacyScore: number;
-  findings: PrivacyFinding[];
-  connectionCount: number;
-  trackerCount: number;
-  timestamp: number;
-}
-
-interface CleanupItem {
-  id: string;
-  category: string;
-  name: string;
-  path: string;
-  size: number;
-  sizeFormatted: string;
-  fileCount: number;
-  description: string;
-  risk: "safe" | "low" | "medium";
-  command: string;
-}
-
-interface CleanupResult {
-  items: CleanupItem[];
-  largeCaches: { name: string; size: number; path: string }[];
-  totalSize: number;
-  totalFormatted: string;
-  timestamp: number;
-}
-
-interface HistoryPoint {
-  ts: number;
-  cpu: number;
-  mem: number;
-  swap: number;
-  load: number;
-}
-
-interface ScanFinding {
-  severity: "critical" | "warning" | "info";
-  category: string;
-  title: string;
-  detail: string;
-  processes: { pid: number; name: string; cpu: number; mem: number; rss: number }[];
-  recommendation: string;
-}
-
-interface ScanResult {
-  healthScore: number;
-  findings: ScanFinding[];
-  summary: {
-    totalProcesses: number;
-    electronApps: number;
-    electronProcesses: number;
-    browsers: number;
-    launchItems: number;
-    swapUsedMB: number;
-  };
-  timestamp: number;
-}
-
-interface ProcessAlert {
-  pid: number;
-  command: string;
-  cpu: number;
-  duration: number;
-}
-
-interface SystemStats {
-  cpu: { user: number; system: number; idle: number; used: number; model: string; cores: number };
-  load: number[];
-  memory: { totalGB: number; usedGB: number; freeGB: number; percent: number; wiredGB: number; compressorGB: number };
-  swap: { totalMB: number; usedMB: number; percent: number };
-  disk: { total: string; used: string; available: string; percent: number };
-  processes: { total: number; threads: number; top: ProcessInfo[] };
-  uptime: string;
-  battery: { percent: number; charging: boolean } | null;
-  history: HistoryPoint[];
-  alerts: ProcessAlert[];
-  timestamp: number;
-}
-
-interface ProcessInfo {
-  user: string;
-  pid: number;
-  cpu: number;
-  mem: number;
-  rss: number;
-  command: string;
-}
-
-// --- Utilities ---
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
-  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const min = Math.floor(seconds / 60);
-  const sec = seconds % 60;
-  return `${min}m${sec > 0 ? ` ${sec}s` : ""}`;
-}
-
-// --- Components ---
-
-function StatusDot({ level }: { level: "ok" | "warn" | "critical" }) {
-  const colors = {
-    ok: "bg-emerald-500 shadow-emerald-500/50",
-    warn: "bg-amber-500 shadow-amber-500/50",
-    critical: "bg-red-500 shadow-red-500/50 animate-pulse",
-  };
-  return <span className={`inline-block w-2 h-2 rounded-full shadow-sm ${colors[level]}`} />;
-}
-
-function getLevel(value: number, warn: number, critical: number): "ok" | "warn" | "critical" {
+function getLevel(value: number, warn: number, critical: number): Level {
   if (value >= critical) return "critical";
   if (value >= warn) return "warn";
   return "ok";
 }
 
-function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = Math.min((value / max) * 100, 100);
+function barColor(level: Level): string {
+  return level === "critical" ? "bg-red-500" : level === "warn" ? "bg-amber-500" : "bg-emerald-500";
+}
+
+function sparkColor(level: Level): string {
+  return level === "critical"
+    ? "oklch(0.704 0.191 22.216)"
+    : level === "warn"
+      ? "oklch(0.828 0.189 84.429)"
+      : "oklch(0.765 0.177 163.223)";
+}
+
+/** Status conveyed by text as well as colour (M-10). */
+/**
+ * Metric heading: coloured dot (decorative) + visible label + a screen-reader
+ * status phrase. The status follows the label so it reads "Disk — status:
+ * normal" rather than "Disk status: normal. Disk" (M-10).
+ */
+function MetricHeading({ level, label }: { level: Level; label: string }) {
+  const cls = level === "critical" ? "bg-red-500" : level === "warn" ? "bg-amber-500" : "bg-emerald-500";
   return (
-    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-      <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
+    <>
+      <span
+        aria-hidden="true"
+        className={`inline-block h-2 w-2 rounded-full shadow-sm ${cls} ${level === "critical" ? "motion-safe:animate-pulse" : ""}`}
+      />
+      {label}
+      <span className="sr-only"> — status: {LEVEL_TEXT[level]}</span>
+    </>
+  );
+}
+
+function MiniBar({ value, max, level }: { value: number; max: number; level: Level }) {
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+      <div
+        className={`h-full rounded-full transition-all duration-500 motion-reduce:transition-none ${barColor(level)}`}
+        style={{ width: `${pct}%` }}
+      />
     </div>
   );
 }
 
-function Sparkline({
-  data,
-  max,
-  color,
-  warnAt,
-  critAt,
-  width = 200,
-  height = 40,
-}: {
-  data: number[];
-  max: number;
-  color: string;
-  warnAt?: number;
-  critAt?: number;
-  width?: number;
-  height?: number;
-}) {
-  if (data.length < 2) {
-    return (
-      <div style={{ width, height }} className="flex items-center justify-center text-xs text-muted-foreground font-mono">
-        collecting...
-      </div>
-    );
-  }
-
-  const padding = 2;
-  const h = height - padding * 2;
-  const w = width - padding * 2;
-  const step = w / (data.length - 1);
-  const clampMax = Math.max(max, Math.max(...data) * 1.1) || 1;
-
-  const points = data.map((v, i) => {
-    const x = padding + i * step;
-    const y = padding + h - (Math.min(v, clampMax) / clampMax) * h;
-    return `${x},${y}`;
-  }).join(" ");
-
-  // Gradient fill area
-  const areaPoints = `${padding},${padding + h} ${points} ${padding + (data.length - 1) * step},${padding + h}`;
-
-  return (
-    <svg width={width} height={height} className="overflow-visible">
-      {/* Threshold lines */}
-      {warnAt !== undefined && (
-        <line
-          x1={padding} y1={padding + h - (warnAt / clampMax) * h}
-          x2={padding + w} y2={padding + h - (warnAt / clampMax) * h}
-          stroke="oklch(0.828 0.189 84.429)" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.4"
-        />
-      )}
-      {critAt !== undefined && (
-        <line
-          x1={padding} y1={padding + h - (critAt / clampMax) * h}
-          x2={padding + w} y2={padding + h - (critAt / clampMax) * h}
-          stroke="oklch(0.704 0.191 22.216)" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.4"
-        />
-      )}
-      {/* Fill */}
-      <polygon points={areaPoints} fill={color} opacity="0.1" />
-      {/* Line */}
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      {/* Current value dot */}
-      {data.length > 0 && (
-        <circle
-          cx={padding + (data.length - 1) * step}
-          cy={padding + h - (Math.min(data[data.length - 1], clampMax) / clampMax) * h}
-          r="2.5" fill={color}
-        />
-      )}
-    </svg>
-  );
-}
-
-// --- Main Dashboard ---
+const REFRESH_OPTIONS = [
+  { value: 0, label: "Paused" },
+  { value: 3000, label: "3s" },
+  { value: 5000, label: "5s" },
+  { value: 10000, label: "10s" },
+  { value: 30000, label: "30s" },
+];
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<SystemStats | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshInterval, setRefreshInterval] = useState(3000);
-  const [killingPid, setKillingPid] = useState<number | null>(null);
-  const [killMessage, setKillMessage] = useState<{ pid: number; success: boolean; error?: string } | null>(null);
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [scanning, setScanning] = useState(false);
+  // M-06: 1s is gone. Even after the async rewrite a full sample costs ~2.2s,
+  // so offering an interval below the response time invites a queue again.
+  const [refreshInterval, setRefreshInterval] = useState(5000);
+
+  const stats = usePolling({
+    url: "/api/stats",
+    intervalMs: refreshInterval || 5000,
+    parse: parseStats,
+    enabled: refreshInterval > 0,
+  });
+
+  const scan = useOnDemand("/api/scan", parseScan);
+  const cleanup = useOnDemand("/api/cleanup", parseCleanup);
+  const privacy = useOnDemand("/api/privacy", parsePrivacy);
+
   const [showScan, setShowScan] = useState(false);
-  const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
-  const [cleaningUp, setCleaningUp] = useState(false);
   const [showCleanup, setShowCleanup] = useState(false);
-  const [cleanedItems, setCleanedItems] = useState<Set<string>>(new Set());
-  const [cleaningId, setCleaningId] = useState<string | null>(null);
-  const [privacyResult, setPrivacyResult] = useState<PrivacyResult | null>(null);
-  const [privacyScanning, setPrivacyScanning] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
-  const [, startTransition] = useTransition();
 
-  const runScan = useCallback(async () => {
-    setScanning(true);
+  const [killingPid, setKillingPid] = useState<number | null>(null);
+  const [notice, setNotice] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+  const [cleaningId, setCleaningId] = useState<string | null>(null);
+  const [cleanedIds, setCleanedIds] = useState<Set<string>>(new Set());
+
+  const announce = useCallback((kind: "ok" | "error", message: string) => {
+    setNotice({ kind, message });
+  }, []);
+
+  const handleKill = useCallback(
+    async (pid: number, name: string) => {
+      if (!window.confirm(`Terminate "${name}" (PID ${pid})?`)) return;
+      setKillingPid(pid);
+      try {
+        const result = await killProcess(pid);
+        announce(
+          result.success ? "ok" : "error",
+          result.success ? `Terminated ${name} (PID ${pid}).` : `Could not terminate ${name}: ${result.error}`,
+        );
+        if (result.success) stats.refresh();
+      } catch {
+        announce("error", `Could not terminate ${name}: the request failed.`);
+      } finally {
+        // L-03: always released, even when the action transport rejects.
+        setKillingPid(null);
+      }
+    },
+    [announce, stats],
+  );
+
+  const handleClean = useCallback(
+    async (item: CleanupItem) => {
+      const ok = window.confirm(
+        `Clean "${item.name}"?\n\nFrees about ${item.sizeFormatted}.\nPath: ${item.path}\nRisk: ${item.risk}`,
+      );
+      if (!ok) return;
+      setCleaningId(item.id);
+      try {
+        // C-01: only the opaque id crosses the wire.
+        const result = await cleanupItem(item.id);
+        if (result.success) {
+          setCleanedIds((prev) => new Set(prev).add(item.id));
+          announce(
+            "ok",
+            `Cleaned ${item.name} — freed ${formatBytes(result.bytesFreed ?? 0)} across ${result.itemsRemoved ?? 0} item(s).`,
+          );
+        } else {
+          announce("error", `Could not clean ${item.name}: ${result.error}`);
+        }
+      } catch {
+        announce("error", `Could not clean ${item.name}: the request failed.`);
+      } finally {
+        setCleaningId(null);
+      }
+    },
+    [announce],
+  );
+
+  const openScan = useCallback(() => {
     setShowScan(true);
-    try {
-      const res = await fetch("/api/scan", { cache: "no-store" });
-      if (!res.ok) throw new Error("Scan failed");
-      const data = await res.json();
-      setScanResult(data);
-    } catch {
-      setScanResult(null);
-    } finally {
-      setScanning(false);
-    }
-  }, []);
-
-  const runPrivacyScan = useCallback(async () => {
-    setPrivacyScanning(true);
-    setShowPrivacy(true);
-    try {
-      const res = await fetch("/api/privacy", { cache: "no-store" });
-      if (!res.ok) throw new Error("Privacy scan failed");
-      const data = await res.json();
-      setPrivacyResult(data);
-    } catch {
-      setPrivacyResult(null);
-    } finally {
-      setPrivacyScanning(false);
-    }
-  }, []);
-
-  const runCleanup = useCallback(async () => {
-    setCleaningUp(true);
+    void scan.run();
+  }, [scan]);
+  const openCleanup = useCallback(() => {
     setShowCleanup(true);
-    setCleanedItems(new Set());
-    try {
-      const res = await fetch("/api/cleanup", { cache: "no-store" });
-      if (!res.ok) throw new Error("Cleanup scan failed");
-      const data = await res.json();
-      setCleanupResult(data);
-    } catch {
-      setCleanupResult(null);
-    } finally {
-      setCleaningUp(false);
-    }
-  }, []);
+    setCleanedIds(new Set());
+    void cleanup.run();
+  }, [cleanup]);
+  const openPrivacy = useCallback(() => {
+    setShowPrivacy(true);
+    void privacy.run();
+  }, [privacy]);
 
-  const handleClean = async (item: CleanupItem) => {
-    if (!confirm(`Clean "${item.name}"?\n\nThis will free ${item.sizeFormatted}.\nPath: ${item.path}\n\nRisk: ${item.risk}`)) return;
-    setCleaningId(item.id);
-    const result = await cleanupItem(item.command);
-    if (result.success) {
-      setCleanedItems((prev) => new Set(prev).add(item.id));
-    } else {
-      alert(result.error);
-    }
-    setCleaningId(null);
-  };
+  const data = stats.data;
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const res = await fetch("/api/stats", { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      setStats(data);
-      setError(null);
-    } catch {
-      setError("Failed to fetch system stats");
-    }
-  }, []);
+  const levels = useMemo(() => {
+    if (!data) return null;
+    return {
+      mem: getLevel(data.memory.percent, 70, 90),
+      cpu: getLevel(data.cpu.used, 60, 85),
+      swap: (data.swap.usedMB > 2000 ? "critical" : data.swap.usedMB > 100 ? "warn" : "ok") as Level,
+      load: getLevel(data.load[0], data.cpu.cores * 0.8, data.cpu.cores * 1.2),
+      disk: getLevel(data.disk.percent, 80, 95),
+    };
+  }, [data]);
 
-  useEffect(() => {
-    fetchStats();
-    const id = setInterval(fetchStats, refreshInterval);
-    return () => clearInterval(id);
-  }, [fetchStats, refreshInterval]);
-
-  const handleKill = (pid: number, name: string) => {
-    if (!confirm(`Kill process "${name}" (PID ${pid})?`)) return;
-    setKillingPid(pid);
-    startTransition(async () => {
-      const result = await killProcess(pid);
-      setKillMessage({ pid, ...result });
-      setKillingPid(null);
-      setTimeout(() => setKillMessage(null), 3000);
-    });
-  };
-
-  if (!stats) {
+  // M-04: the first-load error is rendered *before* any loading early-return,
+  // so a persistent failure can never present as an endless spinner.
+  if (stats.phase === "error" && !data) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-muted-foreground font-mono text-sm animate-pulse">Loading system stats...</div>
-      </div>
+      <main className="dark flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+        <div role="alert" className="max-w-md space-y-3 text-center">
+          <h1 className="font-mono text-base font-semibold">System Monitor</h1>
+          <p className="font-mono text-sm text-red-400">{stats.error}</p>
+          <p className="font-mono text-xs text-muted-foreground">
+            The server could not collect system metrics. This is reported rather than shown as zeroes.
+          </p>
+          <Button variant="outline" size="sm" className="font-mono text-xs" onClick={stats.refresh}>
+            Retry
+          </Button>
+        </div>
+      </main>
     );
   }
 
-  const memLevel = getLevel(stats.memory.percent, 70, 90);
-  const cpuLevel = getLevel(stats.cpu.used, 60, 85);
-  const swapLevel = stats.swap.usedMB > 100 ? (stats.swap.usedMB > 2000 ? "critical" : "warn") : "ok";
-  const loadLevel = getLevel(stats.load[0], stats.cpu.cores * 0.8, stats.cpu.cores * 1.2);
-  const diskLevel = getLevel(stats.disk.percent, 80, 95);
+  if (!data || !levels) {
+    return (
+      <main className="dark flex min-h-screen items-center justify-center bg-background text-foreground">
+        <p role="status" className="font-mono text-sm text-muted-foreground motion-safe:animate-pulse">
+          Loading system stats…
+        </p>
+      </main>
+    );
+  }
 
-  const cpuHistory = stats.history?.map((h) => h.cpu) || [];
-  const memHistory = stats.history?.map((h) => h.mem) || [];
-  const swapHistory = stats.history?.map((h) => h.swap) || [];
-  const loadHistory = stats.history?.map((h) => h.load) || [];
-
-  const sparkColor = (level: "ok" | "warn" | "critical") =>
-    level === "critical" ? "oklch(0.704 0.191 22.216)" : level === "warn" ? "oklch(0.828 0.189 84.429)" : "oklch(0.765 0.177 163.223)";
+  const history = data.history;
 
   return (
     <div className="dark min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="border-b border-border px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h1 className="text-base font-semibold tracking-tight font-mono">System Monitor</h1>
-          <Badge variant="outline" className="font-mono text-xs">{stats.cpu.model}</Badge>
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="font-mono text-base font-semibold tracking-tight">System Monitor</h1>
+          <Badge variant="outline" className="font-mono text-xs">{data.cpu.model}</Badge>
         </div>
-        <div className="flex items-center gap-4 text-xs text-muted-foreground font-mono">
-          <span>up {stats.uptime}</span>
-          {stats.battery && (
-            <span>{stats.battery.charging ? "AC" : "BAT"} {stats.battery.percent}%</span>
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-xs text-muted-foreground">
+          <span>up {data.uptime}</span>
+          {data.battery && (
+            <span>
+              {data.battery.charging ? "AC" : "battery"} {data.battery.percent}%
+            </span>
           )}
-          <span>{stats.processes.total} procs / {stats.processes.threads} threads</span>
-          <select
-            value={refreshInterval}
-            onChange={(e) => setRefreshInterval(Number(e.target.value))}
-            className="bg-muted border border-border rounded px-2 py-0.5 text-xs"
-          >
-            <option value={1000}>1s</option>
-            <option value={3000}>3s</option>
-            <option value={5000}>5s</option>
-            <option value={10000}>10s</option>
-          </select>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 px-3 text-xs font-mono"
-            onClick={runScan}
-            disabled={scanning}
-          >
-            {scanning ? "Scanning..." : "Scan System"}
+          <span>{data.processes.total} procs / {data.processes.threads} threads</span>
+
+          <span className="flex items-center gap-1.5">
+            <label htmlFor="refresh-interval" className="text-muted-foreground">
+              Refresh
+            </label>
+            <select
+              id="refresh-interval"
+              value={refreshInterval}
+              onChange={(e) => setRefreshInterval(Number(e.target.value))}
+              className="rounded border border-border bg-muted px-2 py-0.5 text-xs"
+            >
+              {REFRESH_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </span>
+
+          <Button variant="outline" size="sm" className="h-6 px-3 font-mono text-xs"
+            onClick={openScan} disabled={scan.phase === "loading"}
+            aria-expanded={showScan} aria-controls="scan-panel">
+            {scan.phase === "loading" ? "Scanning…" : "Scan System"}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 px-3 text-xs font-mono"
-            onClick={runCleanup}
-            disabled={cleaningUp}
-          >
-            {cleaningUp ? "Scanning..." : "Cleanup"}
+          <Button variant="outline" size="sm" className="h-6 px-3 font-mono text-xs"
+            onClick={openCleanup} disabled={cleanup.phase === "loading"}
+            aria-expanded={showCleanup} aria-controls="cleanup-panel">
+            {cleanup.phase === "loading" ? "Scanning…" : "Cleanup"}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 px-3 text-xs font-mono"
-            onClick={runPrivacyScan}
-            disabled={privacyScanning}
-          >
-            {privacyScanning ? "Scanning..." : "Privacy"}
+          <Button variant="outline" size="sm" className="h-6 px-3 font-mono text-xs"
+            onClick={openPrivacy} disabled={privacy.phase === "loading"}
+            aria-expanded={showPrivacy} aria-controls="privacy-panel">
+            {privacy.phase === "loading" ? "Scanning…" : "Privacy"}
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 text-xs font-mono text-red-400 hover:text-red-300 hover:bg-red-500/10"
+            className="h-6 px-2 font-mono text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300"
             onClick={async () => {
-              if (!confirm("Stop the System Monitor server?")) return;
-              await stopServer();
+              if (!window.confirm("Stop the System Monitor server?")) return;
+              const r = await stopServer();
+              announce(r.success ? "ok" : "error", r.success ? "Server stopping…" : (r.error ?? "Failed"));
             }}
           >
             Stop Server
@@ -426,354 +292,296 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Process Alerts */}
-      {stats.alerts && stats.alerts.length > 0 && (
-        <div className="mx-6 mt-3 space-y-2">
-          {stats.alerts.map((alert) => (
+      {/* Live region: async outcomes are announced, not just recoloured (M-08). */}
+      <div aria-live="polite" aria-atomic="true" className="px-4 sm:px-6">
+        {notice && (
+          <div
+            role={notice.kind === "error" ? "alert" : "status"}
+            className={`mt-3 rounded px-3 py-2 font-mono text-xs ${
+              notice.kind === "ok"
+                ? "border border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                : "border border-red-500/20 bg-red-500/10 text-red-400"
+            }`}
+          >
+            {notice.message}
+          </div>
+        )}
+      </div>
+
+      {stats.stale && stats.error && (
+        <div role="alert" className="mx-4 mt-3 rounded border border-amber-500/20 bg-amber-500/5 px-3 py-2 font-mono text-xs text-amber-400 sm:mx-6">
+          Refresh failed ({stats.error}). Showing the last successful reading from{" "}
+          {stats.lastUpdated ? new Date(stats.lastUpdated).toLocaleTimeString() : "earlier"}.
+        </div>
+      )}
+
+      {!data.complete && data.unavailable.length > 0 && (
+        <div className="mx-4 mt-3 sm:mx-6">
+          <UnavailableNotice items={data.unavailable} />
+        </div>
+      )}
+
+      {data.alerts.length > 0 && (
+        <section aria-labelledby="alerts-heading" className="mx-4 mt-3 space-y-2 sm:mx-6">
+          <h2 id="alerts-heading" className="sr-only">Process alerts</h2>
+          {data.alerts.map((alert) => (
             <div
               key={alert.pid}
-              className="flex items-center justify-between px-3 py-2 rounded bg-red-500/10 border border-red-500/20 text-xs font-mono"
+              className="flex flex-wrap items-center justify-between gap-2 rounded border border-red-500/20 bg-red-500/10 px-3 py-2 font-mono text-xs"
             >
-              <div className="flex items-center gap-3">
-                <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-red-400">
-                  <span className="font-bold">{alert.command}</span> (PID {alert.pid}) stuck at {alert.cpu.toFixed(0)}% CPU for {formatDuration(alert.duration)}
-                </span>
-              </div>
+              <span className="text-red-400">
+                <strong>{alert.command}</strong> (PID {alert.pid}) held {alert.cpu.toFixed(0)}% of one core for{" "}
+                {formatDuration(alert.duration)}
+              </span>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 px-2 text-xs font-mono text-red-400 hover:text-red-300 hover:bg-red-500/20"
+                aria-label={`Terminate ${alert.command}, PID ${alert.pid}`}
+                className="h-6 min-h-6 px-2 font-mono text-xs text-red-400 hover:bg-red-500/20 hover:text-red-300"
                 onClick={() => handleKill(alert.pid, alert.command)}
                 disabled={killingPid === alert.pid}
               >
-                {killingPid === alert.pid ? "..." : "kill"}
+                {killingPid === alert.pid ? "…" : "kill"}
               </Button>
             </div>
           ))}
-        </div>
+        </section>
       )}
 
-      {/* Kill feedback */}
-      {killMessage && (
-        <div className={`mx-6 mt-3 px-3 py-2 rounded text-xs font-mono ${killMessage.success ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
-          {killMessage.success ? `Killed PID ${killMessage.pid}` : `Failed to kill PID ${killMessage.pid}: ${killMessage.error}`}
-        </div>
-      )}
+      <main className="space-y-4 p-4 sm:p-6">
+        {/* M-09: single column on small screens so charts are never clipped. */}
+        <section aria-labelledby="metrics-heading" className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <h2 id="metrics-heading" className="sr-only">System metrics</h2>
 
-      {error && (
-        <div className="mx-6 mt-3 px-3 py-2 rounded bg-red-500/10 text-red-400 border border-red-500/20 text-xs font-mono">
-          {error}
-        </div>
-      )}
-
-      <main className="p-6 space-y-4">
-        {/* Stats Cards Row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {/* CPU */}
           <Card className="border-border">
-            <CardHeader className="pb-1 pt-3 px-4">
-              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
-                <StatusDot level={cpuLevel} /> CPU
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-3 space-y-1">
-              <div className="flex items-end justify-between">
-                <div className="text-2xl font-mono font-bold tabular-nums">{stats.cpu.used.toFixed(1)}%</div>
-                <div className="text-xs text-muted-foreground font-mono">
-                  {stats.cpu.user.toFixed(0)}% usr / {stats.cpu.system.toFixed(0)}% sys
-                </div>
+            <CardContent className="space-y-1 px-4 py-3">
+              <h3 className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                <MetricHeading level={levels.cpu} label="CPU" />
+              </h3>
+              <div className="flex items-end justify-between gap-2">
+                <p className="font-mono text-2xl font-bold tabular-nums">{data.cpu.used.toFixed(1)}%</p>
+                <p className="font-mono text-xs text-muted-foreground">
+                  {data.cpu.user.toFixed(0)}% usr / {data.cpu.system.toFixed(0)}% sys
+                </p>
               </div>
-              <MiniBar value={stats.cpu.used} max={100} color={cpuLevel === "critical" ? "bg-red-500" : cpuLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
-              <Sparkline data={cpuHistory} max={100} color={sparkColor(cpuLevel)} warnAt={60} critAt={85} width={280} height={48} />
+              <MiniBar value={data.cpu.used} max={100} level={levels.cpu} />
+              <Sparkline data={history.map((h) => h.cpu)} max={100} color={sparkColor(levels.cpu)}
+                label="CPU usage" unit="%" warnAt={60} critAt={85} />
             </CardContent>
           </Card>
 
-          {/* Memory */}
           <Card className="border-border">
-            <CardHeader className="pb-1 pt-3 px-4">
-              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
-                <StatusDot level={memLevel} /> Memory
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-3 space-y-1">
-              <div className="flex items-end justify-between">
-                <div className="text-2xl font-mono font-bold tabular-nums">{stats.memory.usedGB}G <span className="text-sm text-muted-foreground">/ {stats.memory.totalGB}G</span></div>
-                <div className="text-xs text-muted-foreground font-mono">
-                  {stats.memory.wiredGB}G wired / {stats.memory.compressorGB}G comp
-                </div>
+            <CardContent className="space-y-1 px-4 py-3">
+              <h3 className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                <MetricHeading level={levels.mem} label="Memory" />
+              </h3>
+              <div className="flex items-end justify-between gap-2">
+                <p className="font-mono text-2xl font-bold tabular-nums">
+                  {data.memory.usedGB}G <span className="text-sm text-muted-foreground">/ {data.memory.totalGB}G</span>
+                </p>
+                <p className="font-mono text-xs text-muted-foreground">
+                  {data.memory.wiredGB}G wired / {data.memory.compressorGB}G comp
+                </p>
               </div>
-              <MiniBar value={stats.memory.usedGB} max={stats.memory.totalGB} color={memLevel === "critical" ? "bg-red-500" : memLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
-              <Sparkline data={memHistory} max={100} color={sparkColor(memLevel)} warnAt={70} critAt={90} width={280} height={48} />
+              <MiniBar value={data.memory.usedGB} max={data.memory.totalGB} level={levels.mem} />
+              <Sparkline data={history.map((h) => h.mem)} max={100} color={sparkColor(levels.mem)}
+                label="Memory usage" unit="%" warnAt={70} critAt={90} />
             </CardContent>
           </Card>
 
-          {/* Swap */}
           <Card className="border-border">
-            <CardHeader className="pb-1 pt-3 px-4">
-              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
-                <StatusDot level={swapLevel} /> Swap
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-3 space-y-1">
-              <div className="flex items-end justify-between">
-                <div className="text-2xl font-mono font-bold tabular-nums">
-                  {stats.swap.usedMB < 1024 ? `${stats.swap.usedMB}M` : `${(stats.swap.usedMB / 1024).toFixed(1)}G`}
-                </div>
-                <div className="text-xs text-muted-foreground font-mono">
-                  {stats.swap.totalMB > 0 ? `${stats.swap.totalMB}M total` : "None allocated"}
-                </div>
+            <CardContent className="space-y-1 px-4 py-3">
+              <h3 className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                <MetricHeading level={levels.swap} label="Swap" />
+              </h3>
+              <div className="flex items-end justify-between gap-2">
+                <p className="font-mono text-2xl font-bold tabular-nums">
+                  {data.swap.usedMB < 1024 ? `${data.swap.usedMB}M` : `${(data.swap.usedMB / 1024).toFixed(1)}G`}
+                </p>
+                <p className="font-mono text-xs text-muted-foreground">
+                  {data.swap.totalMB > 0 ? `${data.swap.totalMB}M total` : "none allocated"}
+                </p>
               </div>
-              {stats.swap.totalMB > 0 ? (
-                <MiniBar value={stats.swap.usedMB} max={stats.swap.totalMB} color={swapLevel === "critical" ? "bg-red-500" : swapLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
-              ) : (
-                <div className="h-2 w-full rounded-full bg-muted" />
-              )}
-              <Sparkline data={swapHistory} max={Math.max(4096, ...swapHistory)} color={sparkColor(swapLevel)} warnAt={100} critAt={2000} width={280} height={48} />
+              <MiniBar value={data.swap.usedMB} max={Math.max(data.swap.totalMB, 1)} level={levels.swap} />
+              <Sparkline data={history.map((h) => h.swap)} max={4096} color={sparkColor(levels.swap)}
+                label="Swap usage" unit="MB" warnAt={100} critAt={2000} />
             </CardContent>
           </Card>
 
-          {/* Load */}
           <Card className="border-border">
-            <CardHeader className="pb-1 pt-3 px-4">
-              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
-                <StatusDot level={loadLevel} /> Load
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-3 space-y-1">
-              <div className="flex items-end justify-between">
-                <div className="text-2xl font-mono font-bold tabular-nums">{stats.load[0].toFixed(1)}</div>
-                <div className="text-xs text-muted-foreground font-mono">
-                  {stats.load.map((l) => l.toFixed(1)).join(" / ")} ({stats.cpu.cores} cores)
-                </div>
+            <CardContent className="space-y-1 px-4 py-3">
+              <h3 className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                <MetricHeading level={levels.load} label="Load" />
+              </h3>
+              <div className="flex items-end justify-between gap-2">
+                <p className="font-mono text-2xl font-bold tabular-nums">{data.load[0].toFixed(1)}</p>
+                <p className="font-mono text-xs text-muted-foreground">
+                  {data.load.map((l) => l.toFixed(1)).join(" / ")} ({data.cpu.cores} cores)
+                </p>
               </div>
-              <MiniBar value={stats.load[0]} max={stats.cpu.cores * 2} color={loadLevel === "critical" ? "bg-red-500" : loadLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
-              <Sparkline data={loadHistory} max={stats.cpu.cores * 2} color={sparkColor(loadLevel)} warnAt={stats.cpu.cores * 0.8} critAt={stats.cpu.cores * 1.2} width={280} height={48} />
+              <MiniBar value={data.load[0]} max={data.cpu.cores * 2} level={levels.load} />
+              <Sparkline data={history.map((h) => h.load)} max={data.cpu.cores * 2} color={sparkColor(levels.load)}
+                label="Load average" warnAt={data.cpu.cores * 0.8} critAt={data.cpu.cores * 1.2} />
             </CardContent>
           </Card>
-        </div>
+        </section>
 
-        {/* Disk (small) */}
-        <div className="grid grid-cols-4 gap-3">
-          <Card className="border-border col-span-1">
-            <CardContent className="px-4 py-3 flex items-center gap-4">
-              <div>
-                <div className="text-xs font-mono text-muted-foreground flex items-center gap-2 mb-1">
-                  <StatusDot level={diskLevel} /> Disk
-                </div>
-                <div className="text-lg font-mono font-bold tabular-nums">{stats.disk.percent}%</div>
-                <div className="text-xs text-muted-foreground font-mono">{stats.disk.used} / {stats.disk.total}</div>
-              </div>
-              <div className="flex-1">
-                <MiniBar value={stats.disk.percent} max={100} color={diskLevel === "critical" ? "bg-red-500" : diskLevel === "warn" ? "bg-amber-500" : "bg-emerald-500"} />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        <Card className="border-border">
+          <CardContent className="flex flex-wrap items-center gap-4 px-4 py-3">
+            <div>
+              <h3 className="mb-1 flex items-center gap-2 font-mono text-xs text-muted-foreground">
+                <MetricHeading level={levels.disk} label="Disk" />
+              </h3>
+              <p className="font-mono text-lg font-bold tabular-nums">{data.disk.percent}%</p>
+              <p className="font-mono text-xs text-muted-foreground">{data.disk.used} / {data.disk.total}</p>
+            </div>
+            <div className="min-w-[120px] flex-1">
+              <MiniBar value={data.disk.percent} max={100} level={levels.disk} />
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* Privacy Results */}
         {showPrivacy && (
-          <Card className="border-border">
-            <CardHeader className="pb-2 pt-3 px-4 flex flex-row items-center justify-between">
-              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
-                Privacy Scan
-                {privacyResult && (
-                  <>
-                    <Badge
-                      variant="outline"
-                      className={`font-mono text-xs ${
-                        privacyResult.privacyScore >= 80
-                          ? "border-emerald-500/30 text-emerald-400"
-                          : privacyResult.privacyScore >= 50
-                          ? "border-amber-500/30 text-amber-400"
-                          : "border-red-500/30 text-red-400"
-                      }`}
-                    >
-                      Privacy: {privacyResult.privacyScore}/100
+          <div id="privacy-panel">
+            <Panel
+              id="privacy" title="Privacy Scan"
+              phase={privacy.phase} error={privacy.error} stale={privacy.stale} lastUpdated={privacy.lastUpdated}
+              loadingMessage="Checking connections, resolving endpoints, reading permissions…"
+              onRefresh={privacy.run} onClose={() => setShowPrivacy(false)}
+              badges={privacy.data && (
+                <>
+                  <ScorePill label="Privacy" score={privacy.data.privacyScore} complete={privacy.data.complete} />
+                  <Badge variant="outline" className="font-mono text-xs">
+                    {privacy.data.connectionCount} connections · {privacy.data.resolvedCount} resolved ·{" "}
+                    {privacy.data.unknownCount} unknown
+                  </Badge>
+                  {privacy.data.trackerCount > 0 && (
+                    <Badge variant="outline" className="border-red-500/30 font-mono text-xs text-red-400">
+                      {privacy.data.trackerCount} tracker connection(s)
                     </Badge>
-                    <Badge variant="outline" className="font-mono text-xs">
-                      {privacyResult.connectionCount} connections
-                    </Badge>
-                    {privacyResult.trackerCount > 0 && (
-                      <Badge variant="outline" className="font-mono text-xs border-red-500/30 text-red-400">
-                        {privacyResult.trackerCount} tracker(s) active
-                      </Badge>
-                    )}
-                  </>
-                )}
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={runPrivacyScan} disabled={privacyScanning}>
-                  {privacyScanning ? "..." : "Re-scan"}
-                </Button>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={() => setShowPrivacy(false)}>
-                  Close
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              {privacyScanning && !privacyResult ? (
-                <div className="py-8 text-center text-sm text-muted-foreground font-mono animate-pulse">
-                  Checking network connections, trackers, permissions, and browser data...
-                </div>
-              ) : privacyResult ? (
-                <ScrollArea className="h-[420px]">
-                  <div className="space-y-2 pr-3">
-                    {privacyResult.findings.length === 0 ? (
-                      <div className="py-4 text-center text-sm text-emerald-400 font-mono">
-                        No privacy concerns found. Your system looks clean.
-                      </div>
-                    ) : (
-                      privacyResult.findings.map((finding, i) => (
-                        <div
-                          key={i}
-                          className={`rounded border px-3 py-2.5 space-y-1.5 ${
-                            finding.severity === "critical"
-                              ? "bg-red-500/8 border-red-500/25"
-                              : finding.severity === "high"
-                              ? "bg-red-500/5 border-red-500/20"
-                              : finding.severity === "medium"
-                              ? "bg-amber-500/5 border-amber-500/20"
-                              : finding.severity === "low"
-                              ? "bg-muted/40 border-border"
-                              : "bg-muted/20 border-border"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                              finding.severity === "critical" || finding.severity === "high" ? "bg-red-500" :
-                              finding.severity === "medium" ? "bg-amber-500" :
-                              finding.severity === "low" ? "bg-blue-400" : "bg-muted-foreground"
-                            }`} />
-                            <span className="text-xs font-mono font-medium">{finding.title}</span>
-                            <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0">{finding.category}</Badge>
-                            <Badge variant="outline" className={`font-mono text-[10px] px-1.5 py-0 ${
-                              finding.severity === "critical" || finding.severity === "high"
-                                ? "border-red-500/30 text-red-400"
-                                : finding.severity === "medium"
-                                ? "border-amber-500/30 text-amber-400"
-                                : ""
-                            }`}>{finding.severity}</Badge>
-                          </div>
-                          {finding.items.length > 0 && (
-                            <div className="pl-3.5 space-y-0.5">
-                              {finding.items.slice(0, 6).map((item, j) => (
-                                <p key={j} className="text-xs text-muted-foreground font-mono truncate" title={item}>
-                                  {item}
-                                </p>
-                              ))}
-                              {finding.items.length > 6 && (
-                                <p className="text-xs text-muted-foreground/60 font-mono">+{finding.items.length - 6} more</p>
-                              )}
+                  )}
+                </>
+              )}
+            >
+              {privacy.data && (
+                <div className="space-y-2">
+                  <UnavailableNotice items={privacy.data.unavailable} />
+                  <ScrollArea className="h-[420px]">
+                    <div className="space-y-2 pr-3">
+                      {privacy.data.findings.length === 0 ? (
+                        <p className="py-4 text-center font-mono text-sm text-muted-foreground">
+                          No findings from the checks that ran.
+                        </p>
+                      ) : (
+                        privacy.data.findings.map((f, i) => (
+                          <article key={`${f.category}-${i}`} className={`space-y-1.5 rounded border px-3 py-2.5 ${severityCardClass(f.severity)}`}>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${severityDotClass(f.severity)}`} />
+                              <h3 className="font-mono text-xs font-medium">{f.title}</h3>
+                              <Badge variant="outline" className="px-1.5 py-0 font-mono text-[10px]">{f.category}</Badge>
+                              <Badge variant="outline" className="px-1.5 py-0 font-mono text-[10px]">
+                                {SEVERITY_LABEL[f.severity] ?? f.severity}
+                              </Badge>
                             </div>
-                          )}
-                          <p className="text-xs font-mono pl-3.5">
-                            <span className="text-emerald-400/80">Fix:</span>{" "}
-                            <span className="text-muted-foreground">{finding.recommendation}</span>
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </ScrollArea>
-              ) : null}
-            </CardContent>
-          </Card>
+                            {f.items.length > 0 && (
+                              <ul className="space-y-0.5 pl-3.5">
+                                {f.items.slice(0, 6).map((item, j) => (
+                                  <li key={j} className="truncate font-mono text-xs text-muted-foreground" title={item}>{item}</li>
+                                ))}
+                                {f.items.length > 6 && (
+                                  <li className="font-mono text-xs text-muted-foreground/60">+{f.items.length - 6} more</li>
+                                )}
+                              </ul>
+                            )}
+                            <p className="pl-3.5 font-mono text-xs">
+                              <span className="text-emerald-400/80">Fix:</span>{" "}
+                              <span className="text-muted-foreground">{f.recommendation}</span>
+                            </p>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
+                </div>
+              )}
+            </Panel>
+          </div>
         )}
 
-        {/* Cleanup Results */}
         {showCleanup && (
-          <Card className="border-border">
-            <CardHeader className="pb-2 pt-3 px-4 flex flex-row items-center justify-between">
-              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
-                Disk Cleanup
-                {cleanupResult && (
-                  <Badge variant="outline" className="font-mono text-xs border-emerald-500/30 text-emerald-400">
-                    {cleanupResult.totalFormatted} reclaimable
-                  </Badge>
-                )}
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={runCleanup} disabled={cleaningUp}>
-                  {cleaningUp ? "..." : "Re-scan"}
-                </Button>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={() => setShowCleanup(false)}>
-                  Close
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              {cleaningUp && !cleanupResult ? (
-                <div className="py-8 text-center text-sm text-muted-foreground font-mono animate-pulse">
-                  Scanning caches, logs, dev tools, and temp files...
-                </div>
-              ) : cleanupResult ? (
-                <div className="space-y-3">
-                  {cleanupResult.items.length === 0 ? (
-                    <div className="py-4 text-center text-sm text-emerald-400 font-mono">
-                      System is clean. Nothing significant to clear.
-                    </div>
+          <div id="cleanup-panel">
+            <Panel
+              id="cleanup" title="Disk Cleanup"
+              phase={cleanup.phase} error={cleanup.error} stale={cleanup.stale} lastUpdated={cleanup.lastUpdated}
+              loadingMessage="Measuring caches, logs and developer artifacts…"
+              onRefresh={cleanup.run} onClose={() => setShowCleanup(false)}
+              badges={cleanup.data && (
+                <Badge variant="outline" className="border-emerald-500/30 font-mono text-xs text-emerald-400">
+                  {cleanup.data.totalFormatted} reclaimable
+                </Badge>
+              )}
+            >
+              {cleanup.data && (
+                <div className="space-y-2">
+                  <UnavailableNotice items={cleanup.data.unavailable} />
+                  {cleanup.data.items.length === 0 ? (
+                    <p className="py-4 text-center font-mono text-sm text-muted-foreground">
+                      Nothing significant to clear.
+                    </p>
                   ) : (
                     <ScrollArea className="h-[420px]">
                       <div className="space-y-1.5 pr-3">
-                        {/* Group by category */}
-                        {Array.from(new Set(cleanupResult.items.map((i) => i.category))).map((cat) => {
-                          const catItems = cleanupResult.items.filter((i) => i.category === cat);
-                          const catSize = catItems.reduce((s, i) => s + i.size, 0);
+                        {cleanup.data.items.map((item) => {
+                          const cleaned = cleanedIds.has(item.id);
+                          const busy = cleaningId === item.id;
                           return (
-                            <div key={cat}>
-                              <div className="flex items-center justify-between py-1.5 border-b border-border mb-1.5">
-                                <span className="text-xs font-mono font-medium text-muted-foreground">{cat}</span>
-                                <span className="text-xs font-mono text-muted-foreground">{formatBytes(catSize)}</span>
+                            <div
+                              key={item.id}
+                              className={`flex flex-wrap items-start justify-between gap-3 rounded border px-3 py-2 ${
+                                cleaned
+                                  ? "border-emerald-500/20 bg-emerald-500/5 opacity-60"
+                                  : item.risk === "medium"
+                                    ? "border-amber-500/20 bg-amber-500/5"
+                                    : "border-border bg-muted/30"
+                              }`}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h3 className="font-mono text-xs font-medium">
+                                    {cleaned ? `${item.name} — cleaned` : item.name}
+                                  </h3>
+                                  <span className="font-mono text-xs font-bold tabular-nums text-emerald-400">
+                                    {item.sizeFormatted}
+                                  </span>
+                                  {item.risk === "medium" && (
+                                    <Badge variant="outline" className="border-amber-500/30 px-1.5 py-0 font-mono text-[10px] text-amber-400">
+                                      review first
+                                    </Badge>
+                                  )}
+                                  {item.requiresRoot && (
+                                    <Badge variant="outline" className="px-1.5 py-0 font-mono text-[10px]">
+                                      needs admin
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="mt-0.5 font-mono text-xs text-muted-foreground">{item.description}</p>
+                                <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/60" title={item.path}>
+                                  {item.path}
+                                  {item.fileCount !== null ? ` — ${item.fileCount.toLocaleString()} files` : " — file count unavailable"}
+                                </p>
                               </div>
-                              {catItems.map((item) => {
-                                const isCleaned = cleanedItems.has(item.id);
-                                const isCleaning = cleaningId === item.id;
-                                return (
-                                  <div
-                                    key={item.id}
-                                    className={`rounded border px-3 py-2 flex items-start justify-between gap-3 ${
-                                      isCleaned
-                                        ? "bg-emerald-500/5 border-emerald-500/20 opacity-60"
-                                        : item.risk === "medium"
-                                        ? "bg-amber-500/5 border-amber-500/20"
-                                        : "bg-muted/30 border-border"
-                                    }`}
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs font-mono font-medium">
-                                          {isCleaned ? "Cleaned" : item.name}
-                                        </span>
-                                        <span className="text-xs font-mono font-bold tabular-nums text-emerald-400">
-                                          {item.sizeFormatted}
-                                        </span>
-                                        {item.risk === "medium" && (
-                                          <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0 border-amber-500/30 text-amber-400">review first</Badge>
-                                        )}
-                                      </div>
-                                      <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate" title={item.path}>
-                                        {item.description}
-                                      </p>
-                                      <p className="text-[10px] text-muted-foreground/60 font-mono mt-0.5 truncate" title={item.path}>
-                                        {item.path} — {item.fileCount.toLocaleString()} files
-                                      </p>
-                                    </div>
-                                    {!isCleaned && (
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 px-2 text-xs font-mono text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 flex-shrink-0"
-                                        onClick={() => handleClean(item)}
-                                        disabled={isCleaning || item.command.startsWith("sudo")}
-                                        title={item.command.startsWith("sudo") ? "Requires sudo — run manually" : ""}
-                                      >
-                                        {isCleaning ? "..." : item.command.startsWith("sudo") ? "needs sudo" : "clean"}
-                                      </Button>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                              {!cleaned && (
+                                <Button
+                                  variant="ghost" size="sm"
+                                  aria-label={`Clean ${item.name}, freeing about ${item.sizeFormatted}`}
+                                  className="h-6 min-h-6 shrink-0 px-2 font-mono text-xs text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                                  onClick={() => handleClean(item)}
+                                  disabled={busy || item.requiresRoot || cleaningId !== null}
+                                  title={item.requiresRoot ? "Requires administrator rights — run manually" : undefined}
+                                >
+                                  {busy ? "…" : item.requiresRoot ? "manual" : "clean"}
+                                </Button>
+                              )}
                             </div>
                           );
                         })}
@@ -781,178 +589,93 @@ export default function Dashboard() {
                     </ScrollArea>
                   )}
                 </div>
-              ) : null}
-            </CardContent>
-          </Card>
+              )}
+            </Panel>
+          </div>
         )}
 
-        {/* Scan Results */}
         {showScan && (
-          <Card className="border-border">
-            <CardHeader className="pb-2 pt-3 px-4 flex flex-row items-center justify-between">
-              <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
-                System Scan
-                {scanResult && (
-                  <Badge
-                    variant="outline"
-                    className={`font-mono text-xs ${
-                      scanResult.healthScore >= 80
-                        ? "border-emerald-500/30 text-emerald-400"
-                        : scanResult.healthScore >= 50
-                        ? "border-amber-500/30 text-amber-400"
-                        : "border-red-500/30 text-red-400"
-                    }`}
-                  >
-                    Health: {scanResult.healthScore}/100
-                  </Badge>
-                )}
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={runScan} disabled={scanning}>
-                  {scanning ? "..." : "Re-scan"}
-                </Button>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs font-mono text-muted-foreground" onClick={() => setShowScan(false)}>
-                  Close
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              {scanning && !scanResult ? (
-                <div className="py-8 text-center text-sm text-muted-foreground font-mono animate-pulse">
-                  Analyzing processes, launch agents, and resource usage...
-                </div>
-              ) : scanResult ? (
+          <div id="scan-panel">
+            <Panel
+              id="scan" title="System Scan"
+              phase={scan.phase} error={scan.error} stale={scan.stale} lastUpdated={scan.lastUpdated}
+              loadingMessage="Analysing processes, launch agents and resource usage…"
+              onRefresh={scan.run} onClose={() => setShowScan(false)}
+              badges={scan.data && <ScorePill label="Health" score={scan.data.healthScore} complete={scan.data.complete} />}
+            >
+              {scan.data && (
                 <div className="space-y-3">
-                  {/* Summary chips */}
-                  <div className="flex flex-wrap gap-2 pb-2 border-b border-border">
-                    <Badge variant="outline" className="font-mono text-xs">{scanResult.summary.totalProcesses} processes</Badge>
-                    <Badge variant="outline" className="font-mono text-xs">{scanResult.summary.electronApps} Electron apps ({scanResult.summary.electronProcesses} procs)</Badge>
-                    <Badge variant="outline" className="font-mono text-xs">{scanResult.summary.browsers} browser{scanResult.summary.browsers !== 1 ? "s" : ""}</Badge>
-                    <Badge variant="outline" className="font-mono text-xs">{scanResult.summary.launchItems} startup items</Badge>
-                    <Badge variant="outline" className={`font-mono text-xs ${scanResult.summary.swapUsedMB > 100 ? "border-amber-500/30 text-amber-400" : ""}`}>
-                      {scanResult.summary.swapUsedMB}MB swap
-                    </Badge>
-                  </div>
-
-                  {/* Findings */}
-                  {scanResult.findings.length === 0 ? (
-                    <div className="py-4 text-center text-sm text-emerald-400 font-mono">
-                      System looks clean. No issues found.
+                  <UnavailableNotice items={scan.data.unavailable} />
+                  {scan.data.summary && (
+                    <div className="flex flex-wrap gap-2 border-b border-border pb-2">
+                      <Badge variant="outline" className="font-mono text-xs">{scan.data.summary.totalProcesses} processes</Badge>
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {scan.data.summary.electronApps} Electron apps ({scan.data.summary.electronProcesses} procs)
+                      </Badge>
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {scan.data.summary.browsers} browser{scan.data.summary.browsers === 1 ? "" : "s"}
+                      </Badge>
+                      <Badge variant="outline" className="font-mono text-xs">{scan.data.summary.launchItems} startup items</Badge>
+                      <Badge variant="outline" className="font-mono text-xs">{scan.data.summary.swapUsedMB}MB swap</Badge>
                     </div>
+                  )}
+                  {scan.data.findings.length === 0 ? (
+                    <p className="py-4 text-center font-mono text-sm text-muted-foreground">
+                      No findings from the checks that ran.
+                    </p>
                   ) : (
                     <ScrollArea className="h-[400px]">
                       <div className="space-y-2 pr-3">
-                        {scanResult.findings.map((finding, i) => (
-                          <div
-                            key={i}
-                            className={`rounded border px-3 py-2.5 space-y-1.5 ${
-                              finding.severity === "critical"
-                                ? "bg-red-500/5 border-red-500/20"
-                                : finding.severity === "warning"
-                                ? "bg-amber-500/5 border-amber-500/20"
-                                : "bg-muted/30 border-border"
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                  finding.severity === "critical" ? "bg-red-500" :
-                                  finding.severity === "warning" ? "bg-amber-500" : "bg-muted-foreground"
-                                }`} />
-                                <span className="text-xs font-mono font-medium">{finding.title}</span>
-                                <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0">{finding.category}</Badge>
+                        {scan.data.findings.map((f, i) => (
+                          <article key={`${f.category}-${i}`} className={`space-y-1.5 rounded border px-3 py-2.5 ${severityCardClass(f.severity)}`}>
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${severityDotClass(f.severity)}`} />
+                                <h3 className="font-mono text-xs font-medium">{f.title}</h3>
+                                <Badge variant="outline" className="px-1.5 py-0 font-mono text-[10px]">{f.category}</Badge>
+                                <Badge variant="outline" className="px-1.5 py-0 font-mono text-[10px]">
+                                  {SEVERITY_LABEL[f.severity] ?? f.severity}
+                                </Badge>
                               </div>
-                              {finding.processes.length > 0 && (
+                              {f.processes.length > 0 && (
                                 <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-5 px-2 text-[10px] font-mono text-red-400 hover:text-red-300 hover:bg-red-500/10 flex-shrink-0"
-                                  onClick={() => {
-                                    const proc = finding.processes[0];
-                                    handleKill(proc.pid, proc.name);
-                                  }}
+                                  variant="ghost" size="sm"
+                                  aria-label={`Terminate ${f.processes[0].name}, PID ${f.processes[0].pid}`}
+                                  className="h-6 min-h-6 shrink-0 px-2 font-mono text-[10px] text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                                  onClick={() => handleKill(f.processes[0].pid, f.processes[0].name)}
+                                  disabled={killingPid === f.processes[0].pid}
                                 >
-                                  kill main
+                                  kill {f.processes[0].name}
                                 </Button>
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground font-mono leading-relaxed pl-3.5">{finding.detail}</p>
-                            <p className="text-xs font-mono pl-3.5">
+                            <p className="pl-3.5 font-mono text-xs leading-relaxed text-muted-foreground">{f.detail}</p>
+                            <p className="pl-3.5 font-mono text-xs">
                               <span className="text-emerald-400/80">Recommendation:</span>{" "}
-                              <span className="text-muted-foreground">{finding.recommendation}</span>
+                              <span className="text-muted-foreground">{f.recommendation}</span>
                             </p>
-                          </div>
+                          </article>
                         ))}
                       </div>
                     </ScrollArea>
                   )}
                 </div>
-              ) : null}
-            </CardContent>
-          </Card>
+              )}
+            </Panel>
+          </div>
         )}
 
-        {/* Process Table */}
         <Card className="border-border">
-          <CardHeader className="pb-2 pt-3 px-4">
-            <CardTitle className="text-xs font-mono text-muted-foreground">
-              Top Processes by CPU
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-0 pb-0">
-            <ScrollArea className="h-[440px]">
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent border-border">
-                    <TableHead className="font-mono text-xs w-16">PID</TableHead>
-                    <TableHead className="font-mono text-xs">Process</TableHead>
-                    <TableHead className="font-mono text-xs w-16">User</TableHead>
-                    <TableHead className="font-mono text-xs w-20 text-right">CPU %</TableHead>
-                    <TableHead className="font-mono text-xs w-20 text-right">MEM %</TableHead>
-                    <TableHead className="font-mono text-xs w-20 text-right">RSS</TableHead>
-                    <TableHead className="font-mono text-xs w-20 text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {stats.processes.top.map((proc) => {
-                    const cpuHot = proc.cpu > 50;
-                    const cpuWarm = proc.cpu > 20;
-                    const memHot = proc.mem > 5;
-                    const isAlerted = stats.alerts?.some((a) => a.pid === proc.pid);
-                    return (
-                      <TableRow key={proc.pid} className={`border-border hover:bg-muted/50 group ${isAlerted ? "bg-red-500/5" : ""}`}>
-                        <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">{proc.pid}</TableCell>
-                        <TableCell className="font-mono text-xs truncate max-w-[300px]" title={proc.command}>
-                          {isAlerted && <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 mr-2 animate-pulse" />}
-                          {proc.command}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{proc.user}</TableCell>
-                        <TableCell className={`font-mono text-xs tabular-nums text-right ${cpuHot ? "text-red-400 font-bold" : cpuWarm ? "text-amber-400" : ""}`}>
-                          {proc.cpu.toFixed(1)}
-                        </TableCell>
-                        <TableCell className={`font-mono text-xs tabular-nums text-right ${memHot ? "text-amber-400" : ""}`}>
-                          {proc.mem.toFixed(1)}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs tabular-nums text-right text-muted-foreground">
-                          {formatBytes(proc.rss)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={`h-6 px-2 text-xs font-mono transition-opacity text-red-400 hover:text-red-300 hover:bg-red-500/10 ${isAlerted ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-                            onClick={() => handleKill(proc.pid, proc.command)}
-                            disabled={killingPid === proc.pid}
-                          >
-                            {killingPid === proc.pid ? "..." : "kill"}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </ScrollArea>
+          <CardContent className="px-0 pb-0 pt-3">
+            <h2 className="px-4 pb-2 font-mono text-xs text-muted-foreground">
+              Processes by CPU <span className="text-muted-foreground/60">(percent of one core)</span>
+            </h2>
+            <ProcessTable
+              processes={data.processes.top}
+              alerts={data.alerts}
+              killingPid={killingPid}
+              onKill={handleKill}
+            />
           </CardContent>
         </Card>
       </main>

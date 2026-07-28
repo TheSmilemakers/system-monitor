@@ -1,46 +1,12 @@
 # System Monitor
 
-Lightweight macOS system monitor, process manager, and security dashboard. Real-time stats, disk cleanup, and privacy scanning — all from your browser.
+Local macOS system monitor, process manager and privacy scanner. Real-time stats, disk cleanup and privacy checks, in the browser.
 
-Built with Next.js, shadcn/ui, and Geist Mono. Runs locally — no external services, no data leaves your machine.
+**Loopback only by design.** The app reports on — and can act on — your machine: running processes, granted permissions, network connections, and file deletion. It binds to `127.0.0.1` and refuses requests whose `Host` is not loopback. Do not expose it to a network.
 
-## Features
+Built with Next.js and shadcn/ui. Runs entirely locally; no data leaves the machine.
 
-### Real-Time Dashboard
-- **Live system stats** — CPU, memory, swap, disk, and load average with color-coded status indicators
-- **Sparkline history charts** — 5-minute rolling graphs for CPU, memory, swap, and load with warn/critical threshold lines
-- **Process table** — top 20 processes sorted by CPU with color-coded hot indicators
-- **Process alerts** — automatic detection of processes stuck above 50% CPU with kill button
-- **Kill processes** — hover any row to kill stuck/runaway processes (user-owned only, SIGTERM with SIGKILL escalation)
-- **Auto-refresh** — configurable 1s/3s/5s/10s polling
-
-### System Scan
-- **Bloatware detection** — flags antivirus suites, Adobe background services, CleanMyMac, MacKeeper, and other resource-draining software
-- **Electron app audit** — counts all Electron/Chromium apps and their combined memory footprint
-- **Duplicate browser detection** — warns when running multiple browsers simultaneously
-- **Resource hog identification** — flags processes with excessive CPU or memory usage
-- **Startup item audit** — lists third-party launch agents/daemons running on every boot
-- **Health score** — composite 0-100 score based on all findings
-
-### Disk Cleanup
-- **Cache scanning** — app caches, Homebrew, npm, Bun, pip, CocoaPods, Xcode DerivedData
-- **Log cleanup** — user and system logs, crash reports
-- **Stale file detection** — old Downloads (30+ days), Trash, mail attachment caches, iOS backups
-- **Per-item cleaning** — confirm and clean individual categories with size and file count
-- **Safety levels** — safe (caches), low (system logs), medium (downloads/backups requiring review)
-- **Allowlisted commands** — only pre-approved cleanup patterns can execute
-
-### Privacy Scanner
-- **Active tracker detection** — monitors outbound connections against known tracking domains (Google Ads, Facebook, TikTok, Hotjar, FullStory, Mixpanel, Segment, and 30+ others)
-- **Suspicious process detection** — scans for keyloggers, spyware, sniffers, and RATs
-- **Permission audit** — checks which apps have accessibility, screen recording, input monitoring, camera, microphone, contacts, and location access via the TCC database
-- **Persistence check** — identifies unrecognized launch agents/daemons that auto-start on boot
-- **Network activity analysis** — reports processes with unusually high outbound connection counts
-- **Apple telemetry reporting** — shows macOS diagnostic data connections
-- **Browser tracking audit** — extension count, cookie database size, and history per browser
-- **Privacy score** — composite 0-100 score based on findings
-
-## Quick Start
+## Quick start
 
 ```bash
 git clone https://github.com/TheSmilemakers/system-monitor.git
@@ -49,60 +15,97 @@ bun install
 bun run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open <http://localhost:3000>. `bun run dev` and `bun run start` both bind `127.0.0.1`.
 
-### With npm
+## Features
 
-```bash
-npm install
-npm run dev
-```
+### Real-time dashboard
+- **Live stats** — CPU, memory, swap, disk and load average with status text and colour
+- **Sparkline history** — a rolling 5-minute window sampled on a server-side cadence, so the window means the same thing regardless of how often the browser polls
+- **Process table** — top processes by CPU, with per-row termination
+- **Process alerts** — processes sustaining high CPU for 9 seconds or more
+- **Refresh control** — 3s / 5s / 10s / 30s, or paused; polling is completion-driven and pauses while the tab is hidden
 
-## macOS Desktop App (Optional)
+### System scan
+- **Browser audit** — flags multiple concurrent browsers
+- **Electron app audit** — counts genuine Electron apps and their memory footprint, excluding browsers so nothing is counted twice
+- **Bloatware detection** — one finding per vendor rather than one per matched pattern
+- **Resource hogs** — user-owned processes with outsized CPU or memory
+- **Startup items** — third-party launch agents and daemons
+- **Health score** — withheld entirely when a required probe could not run
 
-Create a clickable app icon that starts the server and opens your browser:
+### Disk cleanup
+- **Measured targets** — caches, logs, crash reports, developer artifacts, Trash, old Downloads, iOS backups, mail attachments
+- **Per-item cleaning** — with size, file count and a risk level
+- **Server-owned operations** — the browser sends an opaque id; paths and deletion logic never leave the server
 
-```bash
-mkdir -p ~/Desktop/SystemMonitor.app/Contents/MacOS
+### Privacy scanner
+- **Connection audit** — established connections are resolved to hostnames before being matched against a tracker list. Addresses that do not resolve are reported as **unknown**, never as clean
+- **Permission audit** — reads the TCC database for accessibility, screen recording, input monitoring, camera, microphone, contacts, calendar and photos grants. **Requires Full Disk Access**; without it the check reports itself unavailable rather than reporting no findings
+- **Suspicious process detection** — name-based heuristics
+- **Persistence check** — unrecognised launch agents and daemons
+- **Privacy score** — withheld when any check could not run
 
-cat > ~/Desktop/SystemMonitor.app/Contents/MacOS/launch << 'EOF'
-#!/bin/bash
-PROJECT_DIR="$HOME/projects/system-monitor"  # adjust to your clone path
-PORT=3000
-if lsof -i :$PORT -sTCP:LISTEN >/dev/null 2>&1; then
-  open "http://localhost:$PORT"
-  exit 0
-fi
-cd "$PROJECT_DIR"
-export PATH="$HOME/.bun/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
-nohup bun run dev --port $PORT > "$PROJECT_DIR/.monitor.log" 2>&1 &
-for i in $(seq 1 30); do
-  curl -s -o /dev/null http://localhost:$PORT 2>/dev/null && break
-  sleep 0.5
-done
-open "http://localhost:$PORT"
-EOF
+## Accuracy notes
 
-chmod +x ~/Desktop/SystemMonitor.app/Contents/MacOS/launch
-```
-
-Double-click **SystemMonitor** on your Desktop to launch.
-
-## Architecture
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/api/stats` | Real-time CPU, memory, swap, disk, load, processes. Maintains in-memory history buffer and process alert tracking |
-| `/api/scan` | System health scan — bloatware, Electron apps, resource hogs, startup items |
-| `/api/cleanup` | Disk cleanup scan — caches, logs, stale files with per-item size and file counts |
-| `/api/privacy` | Privacy scan — network trackers, TCC permissions, suspicious processes, browser data |
-| Server Actions | `killProcess()`, `stopServer()`, `cleanupItem()` with allowlisted command execution |
+- **CPU percentages come from two sources with different units.** The CPU card shows system-wide usage normalised 0–100% across all cores. The process table shows `ps` values, which are a percentage of **one** core and can exceed 100%. The table is labelled accordingly.
+- **A score is never a guess.** If a probe times out, is denied, or is unsupported, the scan reports `complete: false`, lists what failed, and shows no score.
+- **Reclaimed space is measured, not estimated.** Cleanup enumerates exactly what it will delete, including dotfiles, and reports the bytes actually freed.
 
 ## Requirements
 
-- macOS (uses macOS-specific system commands: `top`, `vm_stat`, `ps`, `sysctl`, `lsof`, `sqlite3`)
-- Node.js 18+ or Bun
+- macOS — uses `top`, `vm_stat`, `ps`, `sysctl`, `df`, `lsof`, `pmset`, `du`, `find`, `sqlite3`
+- Node.js 20.9+ or Bun
+- Full Disk Access for your terminal, if you want the permission audit to run
+
+## Development
+
+```bash
+bun run typecheck   # tsc --noEmit
+bun run lint        # eslint, zero warnings
+bun run test        # bun test
+bun run build       # next build
+bun run check       # all of the above
+
+bun run qa 0        # QA gate for a phase (0-4)
+bun run qa all      # every phase; exits non-zero unless each scores 10/10
+```
+
+### Architecture
+
+| Path | Purpose |
+|---|---|
+| `src/lib/probe.ts` | Async, argv-based system probes with typed outcomes (`ok` / `timeout` / `denied` / `unsupported` / `failed`) |
+| `src/lib/sampler.ts` | Server-owned sampling, history window and alert tracking |
+| `src/lib/cleanup-targets.ts` | The cleanup catalogue and permitted deletion roots |
+| `src/lib/guard.ts` | Loopback Host/Origin enforcement, applied per handler |
+| `src/lib/scoring.ts` | Health and privacy rubrics, unit-tested against fixtures |
+| `src/lib/schemas.ts` | Runtime validation of every API response |
+| `src/hooks/use-polling.ts` | Completion-driven polling with abort, overlap and visibility guards |
+| `scripts/qa-gate.mjs` | Phase-scoped quality gates |
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/stats` | CPU, memory, swap, disk, load, processes. Returns 503 when core collection fails |
+| `GET /api/scan` | Health scan — browsers, Electron apps, bloatware, hogs, startup items |
+| `GET /api/cleanup` | Cleanup scan — measured targets with opaque ids |
+| `GET /api/privacy` | Privacy scan — connections, permissions, persistence |
+| Server Actions | `killProcess(pid)`, `cleanupItem(id)`, `stopServer()` |
+
+Every route and action calls `assertLocalRequest()` directly. This is deliberate: the Next.js versions this app has targeted have carried repeated middleware/proxy bypass advisories, and a routing bypass must not become an authorisation bypass.
+
+## Security
+
+`AUDIT_FIX_PLAN.md` records the full audit and remediation history, including the resolved critical finding (C-01: a client-supplied shell command reaching `execSync` through a bypassable regex allowlist).
+
+Current posture:
+- No client-supplied string reaches a shell. Deletion uses filesystem APIs with containment checks and symlink rejection.
+- Loopback binding plus per-handler `Host`/`Origin` enforcement.
+- CSP, `frame-ancestors 'none'`, `nosniff`, `no-referrer`, and `no-store` on all system JSON.
+- Zero high or critical advisories reachable from production dependencies.
+
+Report anything you find via GitHub issues.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

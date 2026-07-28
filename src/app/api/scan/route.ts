@@ -1,42 +1,62 @@
-import { execSync } from "child_process";
 import { NextResponse } from "next/server";
 
-function run(cmd: string): string {
-  try {
-    return execSync(cmd, { timeout: 10000, encoding: "utf-8" }).trim();
-  } catch {
-    return "";
-  }
+import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
+import { hasValue, isOk, probe, type ProbeStatus } from "@/lib/probe";
+import { parsePsAux } from "@/lib/sampler";
+import { healthScore } from "@/lib/scoring";
+import { singleFlight } from "@/lib/single-flight";
+
+/**
+ * System health scan.
+ *
+ * Categories are mutually exclusive (M-14): Chromium *browsers* are no longer
+ * also counted as *Electron apps*, which previously inflated both the findings
+ * list and the health score by counting the same processes twice.
+ */
+
+export interface ScanProcessRef {
+  pid: number;
+  name: string;
+  cpu: number;
+  mem: number;
+  rss: number;
 }
 
-// Known categories of processes
-const KNOWN_BLOAT: Record<string, string> = {
-  "com.avast": "Antivirus — macOS has built-in XProtect/Gatekeeper",
-  "com.avg": "Antivirus — macOS has built-in XProtect/Gatekeeper",
-  "com.mcafee": "Antivirus — macOS has built-in XProtect/Gatekeeper",
-  "com.norton": "Antivirus — macOS has built-in XProtect/Gatekeeper",
-  "com.symantec": "Antivirus — macOS has built-in XProtect/Gatekeeper",
-  "com.trendmicro": "Antivirus — macOS has built-in XProtect/Gatekeeper",
-  "com.kaspersky": "Antivirus — macOS has built-in XProtect/Gatekeeper",
-  "com.malwarebytes": "Antivirus — on-demand scans are fine, real-time scanning adds overhead",
-  CleanMyMac: "System cleaner — often runs background agents unnecessarily",
-  MacKeeper: "Known bloatware — aggressive resource usage",
-  "com.macpaw": "CleanMyMac/Gemini — background agents use resources",
-  "Adobe Creative Cloud": "Adobe background services — heavy resource usage if not actively using Adobe apps",
-  "AdobeIPCBroker": "Adobe IPC — runs even when no Adobe app is open",
-  "Adobe Desktop Service": "Adobe background service — can be quit if not using Adobe apps",
-  "com.adobe.acc": "Adobe Creative Cloud agent",
-  CCLibrary: "Adobe CC Library sync — runs continuously",
-  "Core Sync": "Adobe file sync — runs continuously in background",
-  "com.google.keystone": "Google updater — checks for Chrome updates frequently",
-  "Google Software Update": "Google updater daemon",
-  "com.microsoft.autoupdate": "Microsoft AutoUpdate — can be run manually instead",
-  iTunesHelper: "iTunes helper — legacy, not needed on modern macOS",
-  "Cisco AnyConnect": "VPN client — heavy when idle, quit if not using VPN",
-};
+export interface Finding {
+  severity: "critical" | "warning" | "info";
+  category: string;
+  title: string;
+  detail: string;
+  processes: ScanProcessRef[];
+  recommendation: string;
+}
 
+/** Vendor -> matcher. One finding per vendor, so a suite is not counted six times (M-15). */
+const BLOAT_VENDORS: { vendor: string; patterns: string[]; reason: string }[] = [
+  {
+    vendor: "Adobe",
+    patterns: ["Adobe Creative Cloud", "AdobeIPCBroker", "Adobe Desktop Service", "com.adobe.acc", "CCLibrary", "Core Sync"],
+    reason: "Adobe background services run even when no Adobe app is open",
+  },
+  {
+    vendor: "Third-party antivirus",
+    patterns: ["com.avast", "com.avg", "com.mcafee", "com.norton", "com.symantec", "com.trendmicro", "com.kaspersky", "com.malwarebytes"],
+    reason: "macOS ships XProtect and Gatekeeper; third-party real-time scanning adds overhead",
+  },
+  {
+    vendor: "System cleaners",
+    patterns: ["CleanMyMac", "MacKeeper", "com.macpaw"],
+    reason: "System cleaners run background agents continuously",
+  },
+  {
+    vendor: "Updaters",
+    patterns: ["com.google.keystone", "Google Software Update", "com.microsoft.autoupdate"],
+    reason: "Update agents poll frequently and can be run manually instead",
+  },
+];
+
+/** Genuine Electron/Chromium-embedding applications — browsers excluded (M-14). */
 const ELECTRON_APPS: Record<string, string> = {
-  Electron: "Generic Electron app",
   Slack: "Slack",
   Discord: "Discord",
   "Microsoft Teams": "Microsoft Teams",
@@ -51,205 +71,219 @@ const ELECTRON_APPS: Record<string, string> = {
   Postman: "Postman",
   "GitHub Desktop": "GitHub Desktop",
   Loom: "Loom",
-  Zoom: "Zoom",
-  WhatsApp: "WhatsApp",
-  Telegram: "Telegram",
   Signal: "Signal",
-  Binance: "Binance",
-  Claude: "Claude Desktop",
-  Brave: "Brave Browser",
-  "Google Chrome": "Google Chrome",
-  Antigravity: "Antigravity",
+  Electron: "Electron app",
 };
 
-interface ScanProcess {
-  pid: number;
-  user: string;
-  cpu: number;
-  mem: number;
-  rss: number; // bytes
-  command: string;
-  fullPath: string;
-}
+/** Chromium/Gecko browsers — a separate category from Electron apps (M-14). */
+const CHROMIUM_BROWSERS = [
+  "Google Chrome",
+  "Brave",
+  "Firefox",
+  "Safari",
+  "Arc",
+  "Vivaldi",
+  "Opera",
+  "Microsoft Edge",
+];
 
-interface Finding {
-  severity: "critical" | "warning" | "info";
-  category: string;
-  title: string;
-  detail: string;
-  processes: { pid: number; name: string; cpu: number; mem: number; rss: number }[];
-  recommendation: string;
-}
+async function scan() {
+  const [psRes, whoRes, swapRes, userAgentsRes, sysAgentsRes, daemonsRes] = await Promise.all([
+    probe("ps", ["aux"], 8_000),
+    probe("whoami", []),
+    probe("sysctl", ["vm.swapusage"]),
+    probe("ls", [`${process.env.HOME ?? ""}/Library/LaunchAgents`]),
+    probe("ls", ["/Library/LaunchAgents"]),
+    probe("ls", ["/Library/LaunchDaemons"]),
+  ]);
 
-export async function GET() {
-  // Get all processes — ps aux format: USER PID %CPU %MEM VSZ RSS TT STAT STARTED TIME COMMAND
-  const psOutput = run("ps aux");
-  const lines = psOutput.split("\n").slice(1).filter(Boolean);
+  const unavailable: { check: string; reason: ProbeStatus }[] = [];
+  if (!isOk(psRes)) unavailable.push({ check: "process list", reason: psRes.status });
+  if (!isOk(swapRes)) unavailable.push({ check: "swap usage", reason: swapRes.status });
 
-  const allProcs: ScanProcess[] = lines.map((line) => {
-    const parts = line.split(/\s+/);
+  // Without a process list there is nothing to score.
+  if (!hasValue(psRes)) {
     return {
-      user: parts[0],
-      pid: parseInt(parts[1]),
-      cpu: parseFloat(parts[2]),
-      mem: parseFloat(parts[3]),
-      rss: parseInt(parts[5]) * 1024, // RSS is column 5 (index 5), in KB
-      command: parts.slice(10).join(" ").replace(/\/.*\//, "").replace(/ -.*$/, "").substring(0, 60),
-      fullPath: parts.slice(10).join(" "),
+      complete: false,
+      healthScore: null,
+      unavailable,
+      findings: [] as Finding[],
+      summary: null,
+      timestamp: Date.now(),
     };
-  }).filter((p) => p.pid > 0);
-
-  const currentUser = run("whoami");
-  const findings: Finding[] = [];
-
-  // 1. Check for known bloatware
-  for (const [pattern, reason] of Object.entries(KNOWN_BLOAT)) {
-    const matches = allProcs.filter((p) => p.fullPath.includes(pattern));
-    if (matches.length > 0) {
-      const totalMem = matches.reduce((s, p) => s + p.rss, 0);
-      const totalCpu = matches.reduce((s, p) => s + p.cpu, 0);
-      findings.push({
-        severity: totalCpu > 10 || totalMem > 200 * 1024 * 1024 ? "warning" : "info",
-        category: "Bloatware",
-        title: pattern.replace(/com\.\w+\.?/, "").replace(/^\./, "") || pattern,
-        detail: `${reason}. ${matches.length} process(es) using ${(totalMem / 1024 / 1024).toFixed(0)}MB RAM, ${totalCpu.toFixed(1)}% CPU.`,
-        processes: matches.map((p) => ({ pid: p.pid, name: p.command, cpu: p.cpu, mem: p.mem, rss: p.rss })),
-        recommendation: `Consider removing or quitting when not in use.`,
-      });
-    }
   }
 
-  // 2. Electron app audit
-  const electronProcs: ScanProcess[] = [];
-  const electronApps = new Map<string, ScanProcess[]>();
+  const rawLines = psRes.value.split("\n").slice(1).filter(Boolean);
+  const fullPaths = rawLines.map((l) => l.trim().split(/\s+/).slice(10).join(" "));
+  const procs = parsePsAux(psRes.value, Number.MAX_SAFE_INTEGER);
+  const withPath = procs.map((p, i) => ({ ...p, fullPath: fullPaths[i] ?? "" }));
 
-  for (const proc of allProcs) {
+  const currentUser = isOk(whoRes) ? whoRes.value : "";
+  const findings: Finding[] = [];
+  const claimed = new Set<number>();
+
+  const toRef = (p: (typeof withPath)[number]): ScanProcessRef => ({
+    pid: p.pid,
+    name: p.command,
+    cpu: p.cpu,
+    mem: p.mem,
+    rss: p.rss,
+  });
+
+  // 1. Browsers (claimed first so they cannot also be counted as Electron).
+  const runningBrowsers = CHROMIUM_BROWSERS.filter((b) => withPath.some((p) => p.fullPath.includes(b)));
+  const browserProcs = withPath.filter((p) => runningBrowsers.some((b) => p.fullPath.includes(b)));
+  browserProcs.forEach((p) => claimed.add(p.pid));
+
+  if (runningBrowsers.length > 1) {
+    const mem = browserProcs.reduce((s, p) => s + p.rss, 0);
+    findings.push({
+      severity: "warning",
+      category: "Browsers",
+      title: `${runningBrowsers.length} browsers running: ${runningBrowsers.join(", ")}`,
+      detail: `${browserProcs.length} browser processes using ${(mem / 1024 ** 3).toFixed(1)}GB. Each browser runs its own renderer, GPU and utility processes.`,
+      processes: browserProcs.slice(0, 10).map(toRef),
+      recommendation: "Consolidate onto one browser and close the others.",
+    });
+  }
+
+  // 2. Electron apps (excluding anything already claimed as a browser).
+  const electronApps = new Map<string, typeof withPath>();
+  for (const p of withPath) {
+    if (claimed.has(p.pid)) continue;
     for (const [pattern, appName] of Object.entries(ELECTRON_APPS)) {
-      if (proc.fullPath.includes(pattern)) {
-        electronProcs.push(proc);
-        const existing = electronApps.get(appName) || [];
-        existing.push(proc);
-        electronApps.set(appName, existing);
+      if (p.fullPath.includes(pattern)) {
+        const list = electronApps.get(appName) ?? [];
+        list.push(p);
+        electronApps.set(appName, list);
+        claimed.add(p.pid);
         break;
       }
     }
   }
 
+  const electronProcs = [...electronApps.values()].flat();
   if (electronApps.size > 0) {
-    const totalElectronMem = electronProcs.reduce((s, p) => s + p.rss, 0);
-    const appSummary = Array.from(electronApps.entries())
-      .map(([name, procs]) => {
-        const mem = procs.reduce((s, p) => s + p.rss, 0);
-        return { name, procs: procs.length, mem };
-      })
+    const mem = electronProcs.reduce((s, p) => s + p.rss, 0);
+    const summary = [...electronApps.entries()]
+      .map(([name, ps]) => ({ name, count: ps.length, mem: ps.reduce((s, p) => s + p.rss, 0) }))
       .sort((a, b) => b.mem - a.mem);
-
     findings.push({
       severity: electronApps.size > 6 ? "warning" : "info",
       category: "Electron Apps",
       title: `${electronApps.size} Electron apps running (${electronProcs.length} processes)`,
-      detail: `Total memory: ${(totalElectronMem / 1024 / 1024 / 1024).toFixed(1)}GB. Each Electron app is a full Chromium instance. ${appSummary.map((a) => `${a.name}: ${(a.mem / 1024 / 1024).toFixed(0)}MB (${a.procs} procs)`).join(", ")}.`,
-      processes: appSummary.flatMap(a => {
-        const procs = electronApps.get(a.name) || [];
-        return procs.map(p => ({ pid: p.pid, name: p.command, cpu: p.cpu, mem: p.mem, rss: p.rss }));
-      }),
-      recommendation: `Consider closing ${electronApps.size > 4 ? "apps you're not actively using" : "unused apps"} to free memory. Web versions of Slack, Discord, and Spotify use less RAM.`,
+      detail: `Total memory ${(mem / 1024 ** 3).toFixed(1)}GB. ${summary.map((a) => `${a.name}: ${(a.mem / 1024 ** 2).toFixed(0)}MB (${a.count})`).join(", ")}.`,
+      processes: electronProcs.slice(0, 10).map(toRef),
+      recommendation: "Close apps you are not using. Web versions typically use less memory.",
     });
   }
 
-  // 3. Duplicate browsers
-  const browsers = ["Google Chrome", "Brave", "Firefox", "Safari", "Arc", "Vivaldi", "Opera", "Microsoft Edge"];
-  const runningBrowsers = browsers.filter((b) => allProcs.some((p) => p.fullPath.includes(b)));
-  if (runningBrowsers.length > 1) {
-    const browserProcs = allProcs.filter((p) => runningBrowsers.some((b) => p.fullPath.includes(b)));
-    const totalMem = browserProcs.reduce((s, p) => s + p.rss, 0);
+  // 3. Bloatware — one finding per vendor.
+  for (const { vendor, patterns, reason } of BLOAT_VENDORS) {
+    const matches = withPath.filter((p) => patterns.some((pat) => p.fullPath.includes(pat)));
+    if (matches.length === 0) continue;
+    matches.forEach((p) => claimed.add(p.pid));
+    const mem = matches.reduce((s, p) => s + p.rss, 0);
+    const cpu = matches.reduce((s, p) => s + p.cpu, 0);
     findings.push({
-      severity: "warning",
-      category: "Duplicate Browsers",
-      title: `${runningBrowsers.length} browsers running: ${runningBrowsers.join(", ")}`,
-      detail: `${browserProcs.length} browser processes using ${(totalMem / 1024 / 1024 / 1024).toFixed(1)}GB total. Each browser has its own renderer, GPU, and utility processes.`,
-      processes: browserProcs.slice(0, 10).map((p) => ({ pid: p.pid, name: p.command, cpu: p.cpu, mem: p.mem, rss: p.rss })),
-      recommendation: `Use one browser. Consolidate tabs and close the other.`,
+      severity: cpu > 10 || mem > 200 * 1024 ** 2 ? "warning" : "info",
+      category: "Bloatware",
+      title: vendor,
+      detail: `${reason}. ${matches.length} process(es) using ${(mem / 1024 ** 2).toFixed(0)}MB and ${cpu.toFixed(1)}% CPU.`,
+      processes: matches.slice(0, 10).map(toRef),
+      recommendation: "Remove, or quit when not in use.",
     });
   }
 
-  // 4. Resource hogs (>5% CPU or >500MB for user processes)
-  const hogs = allProcs.filter(
-    (p) => p.user === currentUser && (p.cpu > 15 || p.rss > 500 * 1024 * 1024)
-  ).filter(
-    // Exclude already-flagged processes
-    (p) => !findings.some((f) => f.processes.some((fp) => fp.pid === p.pid))
-  );
+  // 4. Resource hogs among the user's own unclaimed processes.
+  const hogs = withPath
+    .filter((p) => p.user === currentUser && !claimed.has(p.pid))
+    .filter((p) => p.cpu > 15 || p.rss > 500 * 1024 ** 2)
+    .sort((a, b) => b.cpu - a.cpu)
+    .slice(0, 5);
 
-  if (hogs.length > 0) {
-    for (const hog of hogs.sort((a, b) => b.cpu + b.rss / 1e9 - (a.cpu + a.rss / 1e9)).slice(0, 5)) {
-      findings.push({
-        severity: hog.cpu > 50 || hog.rss > 1024 * 1024 * 1024 ? "critical" : "warning",
-        category: "Resource Hog",
-        title: `${hog.command} — ${hog.cpu.toFixed(1)}% CPU, ${(hog.rss / 1024 / 1024).toFixed(0)}MB`,
-        detail: `PID ${hog.pid} is consuming significant resources.`,
-        processes: [{ pid: hog.pid, name: hog.command, cpu: hog.cpu, mem: hog.mem, rss: hog.rss }],
-        recommendation: hog.cpu > 50
-          ? "This process may be stuck or spinning. Consider restarting it."
-          : "High memory usage. Restart the app if it's been running for a long time.",
-      });
-    }
+  let criticalHogs = 0;
+  let warningHogs = 0;
+  for (const hog of hogs) {
+    const critical = hog.cpu > 50 || hog.rss > 1024 ** 3;
+    if (critical) criticalHogs++;
+    else warningHogs++;
+    findings.push({
+      severity: critical ? "critical" : "warning",
+      category: "Resource Hog",
+      title: `${hog.command} — ${hog.cpu.toFixed(1)}% of one core, ${(hog.rss / 1024 ** 2).toFixed(0)}MB`,
+      detail: `PID ${hog.pid} is consuming significant resources.`,
+      processes: [toRef(hog)],
+      recommendation: critical
+        ? "This process may be stuck. Consider restarting it."
+        : "High memory use. Restart the app if it has been running a long time.",
+    });
   }
 
-  // 5. Launch agents/daemons audit
-  const userAgents = run("ls ~/Library/LaunchAgents/ 2>/dev/null").split("\n").filter(Boolean);
-  const systemAgents = run("ls /Library/LaunchAgents/ 2>/dev/null").split("\n").filter(Boolean);
-  const thirdPartyDaemons = run("ls /Library/LaunchDaemons/ 2>/dev/null")
-    .split("\n")
-    .filter(Boolean)
-    .filter((f) => !f.startsWith("com.apple."));
+  // 5. Startup items.
+  const launchItems = [
+    ...(isOk(userAgentsRes) ? userAgentsRes.value.split("\n") : []),
+    ...(isOk(sysAgentsRes) ? sysAgentsRes.value.split("\n").filter((f) => !f.startsWith("com.apple.")) : []),
+    ...(isOk(daemonsRes) ? daemonsRes.value.split("\n").filter((f) => !f.startsWith("com.apple.")) : []),
+  ].filter(Boolean);
 
-  const launchItems = [...userAgents, ...systemAgents.filter((f) => !f.startsWith("com.apple.")), ...thirdPartyDaemons];
   if (launchItems.length > 0) {
     findings.push({
       severity: launchItems.length > 10 ? "warning" : "info",
       category: "Startup Items",
       title: `${launchItems.length} third-party launch agents/daemons`,
-      detail: `These start automatically on boot: ${launchItems.slice(0, 8).map((f) => f.replace(".plist", "")).join(", ")}${launchItems.length > 8 ? ` +${launchItems.length - 8} more` : ""}.`,
+      detail: `Start automatically on boot: ${launchItems.slice(0, 8).map((f) => f.replace(".plist", "")).join(", ")}${launchItems.length > 8 ? ` +${launchItems.length - 8} more` : ""}.`,
       processes: [],
-      recommendation: "Review and remove agents for apps you no longer use. Each one consumes memory and CPU on every boot.",
+      recommendation: "Remove agents for apps you no longer use.",
     });
   }
 
-  // 6. Overall health score
-  const totalRamGB = parseInt(run("sysctl -n hw.memsize") || "0") / 1024 ** 3;
-  const swapRaw = run("sysctl vm.swapusage");
-  const swapUsed = parseFloat(swapRaw.match(/used\s*=\s*([\d.]+)M/)?.[1] || "0");
-  const processCount = allProcs.length;
+  const swapUsedMB = isOk(swapRes)
+    ? Number.parseFloat(swapRes.value.match(/used\s*=\s*([\d.]+)M/)?.[1] ?? "0")
+    : 0;
 
-  let healthScore = 100;
-  if (swapUsed > 2000) healthScore -= 30;
-  else if (swapUsed > 500) healthScore -= 15;
-  else if (swapUsed > 100) healthScore -= 5;
-  if (electronApps.size > 8) healthScore -= 15;
-  else if (electronApps.size > 5) healthScore -= 8;
-  if (runningBrowsers.length > 1) healthScore -= 10;
-  if (processCount > 800) healthScore -= 10;
-  else if (processCount > 600) healthScore -= 5;
-  findings.filter((f) => f.severity === "critical").forEach(() => healthScore -= 10);
-  findings.filter((f) => f.severity === "warning").forEach(() => healthScore -= 3);
-  healthScore = Math.max(0, Math.min(100, healthScore));
+  const order = { critical: 0, warning: 1, info: 2 } as const;
+  findings.sort((a, b) => order[a.severity] - order[b.severity]);
 
-  // Sort by severity
-  const severityOrder = { critical: 0, warning: 1, info: 2 };
-  findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+  const complete = unavailable.length === 0;
 
-  return NextResponse.json({
-    healthScore,
+  return {
+    complete,
+    // H-03: withhold the score when evidence is missing rather than implying health.
+    healthScore: complete
+      ? healthScore({
+          swapUsedMB: Number.isFinite(swapUsedMB) ? swapUsedMB : 0,
+          electronAppCount: electronApps.size,
+          browserCount: runningBrowsers.length,
+          processCount: procs.length,
+          criticalHogs,
+          warningHogs,
+        })
+      : null,
+    unavailable,
     findings,
     summary: {
-      totalProcesses: processCount,
+      totalProcesses: procs.length,
       electronApps: electronApps.size,
       electronProcesses: electronProcs.length,
       browsers: runningBrowsers.length,
       launchItems: launchItems.length,
-      swapUsedMB: Math.round(swapUsed),
+      swapUsedMB: Math.round(Number.isFinite(swapUsedMB) ? swapUsedMB : 0),
     },
     timestamp: Date.now(),
-  });
+  };
+}
+
+export async function GET() {
+  try {
+    await assertLocalRequest();
+  } catch (e) {
+    if (e instanceof ForbiddenError) {
+      return NextResponse.json({ error: e.message }, { status: 403 });
+    }
+    throw e;
+  }
+
+  const data = await singleFlight("system-scan", scan);
+  return NextResponse.json(data);
 }
