@@ -217,7 +217,6 @@ export async function GET() {
   }
 
   // 6. Overall health score
-  const totalRamGB = parseInt(run("sysctl -n hw.memsize") || "0") / 1024 ** 3;
   const swapRaw = run("sysctl vm.swapusage");
   const swapUsed = parseFloat(swapRaw.match(/used\s*=\s*([\d.]+)M/)?.[1] || "0");
   const processCount = allProcs.length;

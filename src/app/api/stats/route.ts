@@ -58,10 +58,7 @@ export async function GET() {
     return m ? parseInt(m[1]) : 0;
   };
 
-  const pagesFree = getPages("Pages free");
   const pagesActive = getPages("Pages active");
-  const pagesInactive = getPages("Pages inactive");
-  const pagesSpeculative = getPages("Pages speculative");
   const pagesWired = getPages("Pages wired down");
   const pagesCompressor = getPages("Pages occupied by compressor");
 
@@ -85,10 +82,6 @@ export async function GET() {
   const diskUsed = dfParts[2] || "0";
   const diskAvail = dfParts[3] || "0";
   const diskPercent = parseInt(dfParts[4] || "0");
-
-  // Network
-  const netstat = run("netstat -ib | grep -E 'en0' | head -1");
-  const netParts = netstat.split(/\s+/);
 
   // Uptime
   const uptime = run("uptime").replace(/.*up\s+/, "").replace(/,\s*\d+ users?.*/, "").trim();

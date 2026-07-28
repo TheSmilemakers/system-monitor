@@ -47,14 +47,6 @@ const KNOWN_TRACKERS: Record<string, { category: string; description: string; se
   "snapchat": { category: "Social Tracking", description: "Snapchat tracking pixel", severity: "medium" },
 };
 
-// Known legitimate/expected connections
-const EXPECTED_CONNECTIONS = [
-  "apple.com", "icloud.com", "mzstatic.com", "aaplimg.com", // Apple
-  "github.com", "githubusercontent.com", // GitHub
-  "localhost", "127.0.0.1", "::1", // Local
-  "cloudflare", "fastly", // CDNs
-];
-
 interface PrivacyFinding {
   severity: "critical" | "high" | "medium" | "low" | "info";
   category: string;
@@ -112,9 +104,6 @@ export async function GET() {
       });
     }
   }
-
-  // 2. DNS queries to tracking domains (recent)
-  const dnsCache = run("log show --predicate 'subsystem == \"com.apple.networkd\"' --style compact --last 5m 2>/dev/null | head -100");
 
   // 3. Processes with suspicious names
   const allProcs = run("ps aux");

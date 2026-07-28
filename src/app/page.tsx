@@ -301,7 +301,7 @@ export default function Dashboard() {
   const handleClean = async (item: CleanupItem) => {
     if (!confirm(`Clean "${item.name}"?\n\nThis will free ${item.sizeFormatted}.\nPath: ${item.path}\n\nRisk: ${item.risk}`)) return;
     setCleaningId(item.id);
-    const result = await cleanupItem(item.command);
+    const result = await cleanupItem(item.id);
     if (result.success) {
       setCleanedItems((prev) => new Set(prev).add(item.id));
     } else {

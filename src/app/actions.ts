@@ -11,31 +11,23 @@ export async function stopServer(): Promise<{ success: boolean; error?: string }
   }
 }
 
-// Allowlist of safe cleanup commands — only these patterns can run
-const SAFE_CLEANUP_PATTERNS = [
-  /^rm -rf ".*\/(Library\/Caches|Library\/Logs|\.Trash|Library\/Developer|\.bun\/install\/cache|\.npm\/_cacache|\.cache\/yarn|\.cache\/pip|Library\/Caches\/Homebrew|Library\/Caches\/CocoaPods|Library\/Caches\/pnpm|Library\/Logs\/DiagnosticReports|MobileSync\/Backup|Mail Downloads)"\/?\*$/,
-  /^find ".*\/Downloads" -maxdepth 1 -type f -mtime \+30 -delete$/,
-  /^sudo rm -rf ".*\/(var\/log)\/\*\.(log|gz)"$/,
-];
-
-export async function cleanupItem(command: string): Promise<{ success: boolean; error?: string }> {
-  // Validate command against allowlist
-  const isSafe = SAFE_CLEANUP_PATTERNS.some((p) => p.test(command));
-  if (!isSafe) {
-    return { success: false, error: "Command not in safe cleanup allowlist" };
-  }
-
-  // Block commands requiring sudo (user must run those manually)
-  if (command.startsWith("sudo")) {
-    return { success: false, error: "This cleanup requires sudo — run manually in terminal" };
-  }
-
-  try {
-    execSync(command, { encoding: "utf-8", timeout: 30000 });
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: "Cleanup failed — some files may be in use" };
-  }
+/**
+ * C-01 containment.
+ *
+ * The previous implementation accepted a raw shell command from the browser and
+ * validated it with a regex allowlist whose unbounded `.*` accepted embedded
+ * quotes, `;`, `$( )`, and backticks — a proven arbitrary-code-execution path.
+ *
+ * Cleanup is disabled until Phase 1 replaces it with an opaque server-owned
+ * operation ID resolved against a fixed target table and executed through
+ * filesystem APIs with no shell involved.
+ */
+export async function cleanupItem(id: string): Promise<{ success: boolean; error?: string }> {
+  void id;
+  return {
+    success: false,
+    error: "Cleanup is temporarily disabled pending a security fix (C-01).",
+  };
 }
 
 export async function killProcess(pid: number): Promise<{ success: boolean; error?: string }> {
