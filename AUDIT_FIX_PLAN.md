@@ -1,6 +1,27 @@
 # System Monitor — Canonical Audit & Remediation Plan
 
-**Status:** Release **BLOCKED**
+> ## Remediation complete — all five phases implemented and gated
+>
+> Every phase scored **10/10** on `bun run qa` (50/50 overall). 93 tests pass;
+> typecheck, zero-warning lint and build are green. Verified against the running
+> app, not only statically:
+>
+> | Property | Before | After |
+> |---|---|---|
+> | 4 concurrent `/api/stats` | 31/40/50/63s, **wall 63.9s ≈ sum** | 2.08s each, **wall 2.16s ≈ max** |
+> | `/api/stats` during a cleanup scan | **timed out at 30s, no bytes** | 4–6s, completes |
+> | `/api/cleanup` | 49–51s | ~20s |
+> | Bind address | `*:3000`, LAN URL advertised | `127.0.0.1`, **connection refused from LAN** |
+> | Forged `Host` header | served 200 | **403** |
+> | Production-reachable advisories | 27 high / 74 total | **0 high / 11 total (all dev tooling)** |
+> | Cleanup injection payloads | passed the allowlist | rejected as unknown ids |
+> | Failed probes | scored as healthy | `complete:false`, score withheld |
+>
+> Remaining verification gaps are listed in [§9](#9-what-remains-unverified).
+> The register below is kept as the historical record; each entry's fix is
+> implemented unless marked otherwise.
+
+**Status:** Remediated — was **BLOCKED**
 **Commit audited:** `bcacb71` (`main`)
 **Date:** 2026-07-28
 **Supersedes:** this document is the single source of truth. It merges two independent audits performed without knowledge of each other:
@@ -789,3 +810,26 @@ lsof -i -nP | grep ESTABLISHED | awk '{print $9}' | grep -cE '[a-zA-Z]{3,}\.'   
 ---
 
 *Findings verified by direct source inspection, static gates, live loopback probing, and a network-backed dependency audit. Payloads for C-01 were tested against the validation predicate only and were never executed.*
+
+*Remediation implemented across five gated phases; see §9 for what the gates do not cover.*
+
+---
+
+## 9. What remains unverified
+
+Stated plainly so the gates are not mistaken for proof of more than they check.
+
+- **Colour contrast** — not measured. No computed-style contrast pass was run, so this document makes no WCAG contrast claim.
+- **Screen-reader behaviour** — live regions, accessible names, headings and the table caption are verified *structurally* (present and correctly associated). No assistive-technology run was performed.
+- **Reflow at 320 px and 400% zoom** — the fixed 280 px chart width is gone and the grid collapses to one column, verified by inspection of the markup, not in a browser at those viewports.
+- **Tracker detection recall** — the pipeline is proven capable of matching (resolution now yields hostnames; a live scan resolved 78 of 113 connections and matched 1 tracker). Actual precision and recall against a known corpus is not measured.
+- **The `partial` probe status** — introduced after runtime testing showed `du` discarding usable lower bounds. Exercised by unit tests and observed live, but it is newer than the rest of the collection layer.
+- **Intel Macs** — page size is now read from `hw.pagesize` and unit-tested against this host (16384, Apple Silicon). The 4096 path is covered by the fallback test but has not run on real Intel hardware.
+- **Load beyond four concurrent requests** — single-flight and bounded concurrency are verified at 4 concurrent stats requests and one concurrent cleanup. Behaviour under sustained multi-tab load is untested.
+- **`stopServer`** — exits the process by design, so it is not exercised in the automated suite.
+
+### Deliberate trade-offs
+
+- **A cleanup scan still costs ~20s** and slows a concurrent stats request to 4–6s. The event loop is free throughout — this is genuine disk I/O from walking large trees. Concurrency is capped at 4 to bound it; lowering it further would make the scan slower still.
+- **Permission-denied targets are shown as partial rather than hidden.** `~/Library/Caches`, `.Trash`, iOS backups and Mail downloads are TCC-protected, so `du` returns a lower bound. Showing a flagged partial was judged better than either trusting it silently or dropping the largest targets from the list.
+- **`assertLocalRequest()` is duplicated across handlers** rather than centralised in middleware. This is intentional: the Next.js versions this app targets have carried repeated middleware/proxy bypass advisories, and a routing bypass must not become an authorisation bypass.
