@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Nested git worktrees live here and carry their own .next output;
+    // linting them makes the root lint fail on generated bundles.
+    ".claude/**",
+    "**/.next/**",
   ]),
 ]);
 
