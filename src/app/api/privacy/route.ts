@@ -1,53 +1,66 @@
-import { execSync } from "child_process";
+import os from "node:os";
+
 import { NextResponse } from "next/server";
 
-function run(cmd: string): string {
-  try {
-    return execSync(cmd, { timeout: 15000, encoding: "utf-8" }).trim();
-  } catch {
-    return "";
-  }
-}
+import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
+import { isOk, probe, type ProbeStatus } from "@/lib/probe";
+import { remoteAddressOf, resolveAll } from "@/lib/resolve-host";
+import { privacyScore } from "@/lib/scoring";
+import { singleFlight } from "@/lib/single-flight";
 
-// Known telemetry/tracking domains and what they do
+/**
+ * Privacy scan.
+ *
+ * Tracker detection now correlates connections against *resolved hostnames*
+ * (H-04). Addresses that will not resolve are reported as `unknown` rather than
+ * silently treated as clean, and every probe failure — notably the TCC database,
+ * which is unreadable without Full Disk Access — is surfaced instead of being
+ * swallowed into a perfect score (H-03).
+ */
+
 const KNOWN_TRACKERS: Record<string, { category: string; description: string; severity: "high" | "medium" | "low" }> = {
-  // Analytics
-  "google-analytics": { category: "Analytics", description: "Google Analytics — web/app usage tracking", severity: "medium" },
-  "googleads": { category: "Ads", description: "Google Ads tracking", severity: "high" },
-  "doubleclick": { category: "Ads", description: "Google DoubleClick ad network", severity: "high" },
-  "facebook.com": { category: "Social Tracking", description: "Facebook/Meta tracking pixel", severity: "high" },
-  "graph.facebook": { category: "Social Tracking", description: "Facebook Graph API — social data", severity: "high" },
-  "fbcdn": { category: "Social Tracking", description: "Facebook CDN — tracking assets", severity: "medium" },
-  "analytics.google": { category: "Analytics", description: "Google Analytics endpoint", severity: "medium" },
-  "crashlytics": { category: "Crash Reporting", description: "Firebase Crashlytics — crash data", severity: "low" },
-  "app-measurement": { category: "Analytics", description: "Firebase Analytics — app usage data", severity: "medium" },
-  "amplitude": { category: "Analytics", description: "Amplitude — product analytics", severity: "medium" },
-  "mixpanel": { category: "Analytics", description: "Mixpanel — user behavior tracking", severity: "medium" },
-  "segment.io": { category: "Analytics", description: "Segment — data pipeline to multiple trackers", severity: "medium" },
-  "segment.com": { category: "Analytics", description: "Segment — data pipeline", severity: "medium" },
-  "sentry.io": { category: "Error Tracking", description: "Sentry — error/crash reporting", severity: "low" },
-  "hotjar": { category: "Session Recording", description: "Hotjar — session recording and heatmaps", severity: "high" },
-  "fullstory": { category: "Session Recording", description: "FullStory — session replay", severity: "high" },
-  "mouseflow": { category: "Session Recording", description: "Mouseflow — session recording", severity: "high" },
-  "smartlook": { category: "Session Recording", description: "Smartlook — session recording", severity: "high" },
-  "appsflyer": { category: "Attribution", description: "AppsFlyer — mobile attribution tracking", severity: "medium" },
-  "adjust.com": { category: "Attribution", description: "Adjust — mobile attribution", severity: "medium" },
-  "branch.io": { category: "Attribution", description: "Branch — deep link attribution", severity: "medium" },
-  "newrelic": { category: "APM", description: "New Relic — performance monitoring (sends app data)", severity: "low" },
-  "datadog": { category: "APM", description: "Datadog — monitoring (sends system metrics)", severity: "low" },
-  "telemetry": { category: "Telemetry", description: "Generic telemetry endpoint", severity: "medium" },
-  "tracking": { category: "Tracking", description: "Generic tracking endpoint", severity: "medium" },
-  "stats.": { category: "Analytics", description: "Stats collection endpoint", severity: "medium" },
-  "pixel": { category: "Tracking Pixel", description: "Tracking pixel endpoint", severity: "high" },
-  "adservice": { category: "Ads", description: "Ad serving network", severity: "high" },
-  "scorecardresearch": { category: "Analytics", description: "comScore — cross-platform analytics", severity: "medium" },
-  "quantserve": { category: "Analytics", description: "Quantcast — audience measurement", severity: "medium" },
-  "tiktok": { category: "Social Tracking", description: "TikTok tracking/analytics", severity: "high" },
-  "bytedance": { category: "Social Tracking", description: "ByteDance (TikTok parent) — data collection", severity: "high" },
-  "snapchat": { category: "Social Tracking", description: "Snapchat tracking pixel", severity: "medium" },
+  "google-analytics": { category: "Analytics", description: "Google Analytics", severity: "medium" },
+  googleads: { category: "Ads", description: "Google Ads", severity: "high" },
+  doubleclick: { category: "Ads", description: "Google DoubleClick", severity: "high" },
+  "graph.facebook": { category: "Social", description: "Facebook Graph API", severity: "high" },
+  facebook: { category: "Social", description: "Facebook/Meta", severity: "high" },
+  fbcdn: { category: "Social", description: "Facebook CDN", severity: "medium" },
+  crashlytics: { category: "Crash Reporting", description: "Firebase Crashlytics", severity: "low" },
+  "app-measurement": { category: "Analytics", description: "Firebase Analytics", severity: "medium" },
+  amplitude: { category: "Analytics", description: "Amplitude", severity: "medium" },
+  mixpanel: { category: "Analytics", description: "Mixpanel", severity: "medium" },
+  segment: { category: "Analytics", description: "Segment", severity: "medium" },
+  sentry: { category: "Error Tracking", description: "Sentry", severity: "low" },
+  hotjar: { category: "Session Recording", description: "Hotjar", severity: "high" },
+  fullstory: { category: "Session Recording", description: "FullStory", severity: "high" },
+  mouseflow: { category: "Session Recording", description: "Mouseflow", severity: "high" },
+  smartlook: { category: "Session Recording", description: "Smartlook", severity: "high" },
+  appsflyer: { category: "Attribution", description: "AppsFlyer", severity: "medium" },
+  adjust: { category: "Attribution", description: "Adjust", severity: "medium" },
+  branch: { category: "Attribution", description: "Branch", severity: "medium" },
+  newrelic: { category: "APM", description: "New Relic", severity: "low" },
+  datadog: { category: "APM", description: "Datadog", severity: "low" },
+  scorecardresearch: { category: "Analytics", description: "comScore", severity: "medium" },
+  quantserve: { category: "Analytics", description: "Quantcast", severity: "medium" },
+  tiktok: { category: "Social", description: "TikTok", severity: "high" },
+  bytedance: { category: "Social", description: "ByteDance", severity: "high" },
+  snapchat: { category: "Social", description: "Snapchat", severity: "medium" },
 };
 
-interface PrivacyFinding {
+const APPLE_TELEMETRY = ["xp.apple.com", "metrics.apple.com", "diagnostics.apple.com"];
+
+const TCC_CATEGORIES = [
+  { service: "kTCCServiceAccessibility", name: "Accessibility (can observe keystrokes)", highRisk: true },
+  { service: "kTCCServiceScreenCapture", name: "Screen Recording", highRisk: true },
+  { service: "kTCCServiceListenEvent", name: "Input Monitoring", highRisk: true },
+  { service: "kTCCServiceCamera", name: "Camera", highRisk: false },
+  { service: "kTCCServiceMicrophone", name: "Microphone", highRisk: false },
+  { service: "kTCCServiceAddressBook", name: "Contacts", highRisk: false },
+  { service: "kTCCServiceCalendar", name: "Calendar", highRisk: false },
+  { service: "kTCCServicePhotos", name: "Photos", highRisk: false },
+];
+
+export interface PrivacyFinding {
   severity: "critical" | "high" | "medium" | "low" | "info";
   category: string;
   title: string;
@@ -56,220 +69,237 @@ interface PrivacyFinding {
   recommendation: string;
 }
 
-export async function GET() {
-  const home = process.env.HOME || "/Users/rajan";
+async function scan() {
+  const home = os.homedir();
   const findings: PrivacyFinding[] = [];
+  const unavailable: { check: string; reason: ProbeStatus }[] = [];
 
-  // 1. Active network connections — what's phoning home
-  const lsofOutput = run("lsof -i -nP 2>/dev/null | grep ESTABLISHED");
-  const connections = lsofOutput.split("\n").filter(Boolean).map((line) => {
-    const parts = line.split(/\s+/);
-    return {
-      process: parts[0],
-      pid: parts[1],
-      user: parts[2],
-      destination: parts[8] || "",
-    };
-  });
+  const [lsofRes, psRes, userAgentsRes, sysAgentsRes, daemonsRes] = await Promise.all([
+    probe("lsof", ["-i", "-nP"], 15_000),
+    probe("ps", ["aux"], 8_000),
+    probe("ls", [`${home}/Library/LaunchAgents`]),
+    probe("ls", ["/Library/LaunchAgents"]),
+    probe("ls", ["/Library/LaunchDaemons"]),
+  ]);
 
-  // Match against known trackers
-  const trackerConnections: { process: string; pid: string; destination: string; tracker: string; info: typeof KNOWN_TRACKERS[string] }[] = [];
-  for (const conn of connections) {
-    for (const [pattern, info] of Object.entries(KNOWN_TRACKERS)) {
-      if (conn.destination.toLowerCase().includes(pattern.toLowerCase())) {
-        trackerConnections.push({ ...conn, tracker: pattern, info });
-        break;
+  // --- Connections ---
+  let connectionCount = 0;
+  let resolvedCount = 0;
+  let unknownCount = 0;
+  let trackerCount = 0;
+
+  if (!isOk(lsofRes)) {
+    unavailable.push({ check: "network connections (lsof)", reason: lsofRes.status });
+  } else {
+    const conns = lsofRes.value
+      .split("\n")
+      .filter((l) => l.includes("ESTABLISHED"))
+      .map((line) => {
+        const parts = line.trim().split(/\s+/);
+        return { process: parts[0] ?? "?", pid: parts[1] ?? "?", name: parts[8] ?? "" };
+      })
+      .filter((c) => c.name);
+
+    connectionCount = conns.length;
+
+    const addrs = conns.map((c) => remoteAddressOf(c.name)).filter((a): a is string => a !== null);
+    const resolutions = await resolveAll(addrs);
+
+    const grouped = new Map<string, string[]>();
+    const appleHits: string[] = [];
+
+    for (const c of conns) {
+      const addr = remoteAddressOf(c.name);
+      if (!addr) continue;
+      const res = resolutions.get(addr);
+      if (!res || res.status === "unknown") {
+        unknownCount++;
+        continue;
+      }
+      resolvedCount++;
+      const host = res.hostnames.join(" ").toLowerCase();
+
+      for (const [pattern, info] of Object.entries(KNOWN_TRACKERS)) {
+        if (host.includes(pattern)) {
+          trackerCount++;
+          const list = grouped.get(info.category) ?? [];
+          list.push(`${c.process} (PID ${c.pid}) → ${res.hostnames[0]} — ${info.description}`);
+          grouped.set(info.category, list);
+          break;
+        }
+      }
+      if (APPLE_TELEMETRY.some((d) => host.includes(d))) {
+        appleHits.push(`${c.process} → ${res.hostnames[0]}`);
       }
     }
-  }
 
-  if (trackerConnections.length > 0) {
-    const grouped = new Map<string, typeof trackerConnections>();
-    for (const tc of trackerConnections) {
-      const key = tc.info.category;
-      const arr = grouped.get(key) || [];
-      arr.push(tc);
-      grouped.set(key, arr);
-    }
-
-    for (const [category, conns] of grouped) {
-      const highSev = conns.some((c) => c.info.severity === "high");
+    for (const [category, items] of grouped) {
       findings.push({
-        severity: highSev ? "high" : "medium",
+        severity: "high",
         category: "Active Trackers",
-        title: `${category}: ${conns.length} active connection(s)`,
-        detail: conns.map((c) => `${c.process} (PID ${c.pid}) → ${c.destination} — ${c.info.description}`).join("\n"),
-        items: conns.map((c) => `${c.process}: ${c.info.description}`),
-        recommendation: `These processes are actively sending data. Consider blocking with a DNS-level blocker like NextDNS or Little Snitch.`,
+        title: `${category}: ${items.length} active connection(s)`,
+        detail: items.join("\n"),
+        items,
+        recommendation: "Block at DNS level (NextDNS, Little Snitch) or quit the app.",
       });
     }
-  }
 
-  // 3. Processes with suspicious names
-  const allProcs = run("ps aux");
-  const suspiciousKeywords = ["keylog", "keystroke", "spyware", "surveillance", "sniff", "intercept", "ratpoison", "meterpreter", "cobalt"];
-  // Exclude known legitimate macOS processes
-  const safeProcesses = [
-    "screencapture", "screenshotservices", "activitymonitor", "com.apple",
-    "windowserver", "loginwindow", "corespotlight", "systemmonitor",
-    "next-server", "system-monitor", "inputmonitor", // our own app
-  ];
-  const suspiciousProcs: string[] = [];
-  for (const line of allProcs.split("\n")) {
-    const lower = line.toLowerCase();
-    if (safeProcesses.some((s) => lower.includes(s))) continue;
-    for (const kw of suspiciousKeywords) {
-      if (lower.includes(kw) && !lower.includes("grep")) {
-        suspiciousProcs.push(line.split(/\s+/).slice(10).join(" ").substring(0, 80));
-        break;
-      }
-    }
-  }
-
-  if (suspiciousProcs.length > 0) {
-    findings.push({
-      severity: "critical",
-      category: "Suspicious Processes",
-      title: `${suspiciousProcs.length} process(es) with suspicious names`,
-      detail: suspiciousProcs.join("\n"),
-      items: suspiciousProcs,
-      recommendation: "Investigate these processes immediately. They may be monitoring keystrokes or screen activity.",
-    });
-  }
-
-  // 4. TCC permissions — apps with access to sensitive data
-  const tccCategories = [
-    { service: "kTCCServiceAccessibility", name: "Accessibility (can monitor keystrokes)" },
-    { service: "kTCCServiceScreenCapture", name: "Screen Recording" },
-    { service: "kTCCServiceListenEvent", name: "Input Monitoring (keyboard/mouse)" },
-    { service: "kTCCServiceCamera", name: "Camera" },
-    { service: "kTCCServiceMicrophone", name: "Microphone" },
-    { service: "kTCCServiceAddressBook", name: "Contacts" },
-    { service: "kTCCServiceCalendar", name: "Calendar" },
-    { service: "kTCCServicePhotos", name: "Photos" },
-    { service: "kTCCServiceLocation", name: "Location" },
-  ];
-
-  const tccDb = `${home}/Library/Application Support/com.apple.TCC/TCC.db`;
-  for (const tcc of tccCategories) {
-    const apps = run(`sqlite3 "${tccDb}" "SELECT client FROM access WHERE service='${tcc.service}' AND auth_value=2" 2>/dev/null`);
-    const appList = apps.split("\n").filter(Boolean);
-    if (appList.length > 0) {
-      const isHighRisk = ["Accessibility", "Screen Recording", "Input Monitoring"].some((s) => tcc.name.includes(s));
-      findings.push({
-        severity: isHighRisk ? "medium" : "info",
-        category: "App Permissions",
-        title: `${tcc.name}: ${appList.length} app(s) granted`,
-        detail: `These apps have ${tcc.name.toLowerCase()} access: ${appList.map((a) => a.split(".").pop() || a).join(", ")}`,
-        items: appList,
-        recommendation: isHighRisk
-          ? "Review these permissions in System Settings → Privacy & Security. Remove access for apps you don't recognize."
-          : "Normal permissions. Review if any app seems unexpected.",
-      });
-    }
-  }
-
-  // 5. Unrecognized LaunchAgents/Daemons (potential persistence mechanisms)
-  const knownVendors = ["com.apple.", "com.google.", "com.microsoft.", "com.nordvpn.", "com.spotify.", "com.docker."];
-  const userAgents = run(`ls ~/Library/LaunchAgents/ 2>/dev/null`).split("\n").filter(Boolean);
-  const sysAgents = run(`ls /Library/LaunchAgents/ 2>/dev/null`).split("\n").filter(Boolean);
-  const sysDaemons = run(`ls /Library/LaunchDaemons/ 2>/dev/null`).split("\n").filter(Boolean);
-
-  const unknownAgents = [...userAgents, ...sysAgents, ...sysDaemons]
-    .filter((f) => !knownVendors.some((v) => f.startsWith(v)))
-    .filter((f) => f.endsWith(".plist"));
-
-  if (unknownAgents.length > 0) {
-    findings.push({
-      severity: unknownAgents.length > 5 ? "medium" : "low",
-      category: "Persistence",
-      title: `${unknownAgents.length} unrecognized launch agent(s)/daemon(s)`,
-      detail: `These run automatically on boot and could be used for tracking: ${unknownAgents.map((a) => a.replace(".plist", "")).join(", ")}`,
-      items: unknownAgents,
-      recommendation: "Investigate unknown agents. Legitimate apps install these, but so does malware. Check each one.",
-    });
-  }
-
-  // 6. Outbound connection count per process
-  const connCounts = new Map<string, number>();
-  for (const conn of connections) {
-    connCounts.set(conn.process, (connCounts.get(conn.process) || 0) + 1);
-  }
-  const heavyPhoners = Array.from(connCounts.entries())
-    .filter(([, count]) => count >= 10)
-    .sort(([, a], [, b]) => b - a);
-
-  if (heavyPhoners.length > 0) {
-    findings.push({
-      severity: "low",
-      category: "Network Activity",
-      title: `${heavyPhoners.length} process(es) with many outbound connections`,
-      detail: heavyPhoners.map(([proc, count]) => `${proc}: ${count} connections`).join(", "),
-      items: heavyPhoners.map(([proc, count]) => `${proc} (${count} connections)`),
-      recommendation: "High connection counts are normal for browsers and cloud apps, but unusual for small utilities. Investigate unfamiliar processes.",
-    });
-  }
-
-  // 7. Check for known macOS telemetry
-  const appleTelemetry = connections.filter((c) =>
-    c.destination.includes("xp.apple.com") ||
-    c.destination.includes("metrics.apple.com") ||
-    c.destination.includes("diagnostics.apple.com")
-  );
-  if (appleTelemetry.length > 0) {
-    findings.push({
-      severity: "info",
-      category: "Apple Telemetry",
-      title: `macOS sending diagnostics to Apple (${appleTelemetry.length} connections)`,
-      detail: `Apple collects diagnostic data by default. Processes: ${[...new Set(appleTelemetry.map((c) => c.process))].join(", ")}`,
-      items: appleTelemetry.map((c) => `${c.process} → ${c.destination}`),
-      recommendation: "You can disable this in System Settings → Privacy & Security → Analytics & Improvements.",
-    });
-  }
-
-  // 8. Browser tracking profile (cookie databases, extensions)
-  const browserProfiles = [
-    { name: "Chrome", path: `${home}/Library/Application Support/Google/Chrome/Default` },
-    { name: "Brave", path: `${home}/Library/Application Support/BraveSoftware/Brave-Browser/Default` },
-    { name: "Firefox", path: `${home}/Library/Application Support/Firefox/Profiles` },
-  ];
-
-  for (const browser of browserProfiles) {
-    const cookieSize = run(`du -sk "${browser.path}/Cookies" 2>/dev/null | cut -f1`);
-    const extensionCount = run(`ls "${browser.path}/Extensions/" 2>/dev/null | wc -l`).trim();
-    const historySize = run(`du -sk "${browser.path}/History" 2>/dev/null | cut -f1`);
-
-    if (parseInt(cookieSize) > 0) {
+    if (appleHits.length > 0) {
       findings.push({
         severity: "info",
-        category: "Browser Data",
-        title: `${browser.name}: ${extensionCount} extensions, ${parseInt(cookieSize) > 0 ? `${cookieSize}KB cookies` : "no cookies"}`,
-        detail: `Cookies and browsing history can be used for cross-site tracking. History: ${historySize ? `${historySize}KB` : "N/A"}.`,
-        items: [`Cookies: ${cookieSize}KB`, `Extensions: ${extensionCount}`, `History: ${historySize || 0}KB`],
-        recommendation: `Review extensions in ${browser.name} settings. Remove any you don't recognize. Consider using a tracker blocker like uBlock Origin.`,
+        category: "Apple Telemetry",
+        title: `macOS diagnostics (${appleHits.length} connections)`,
+        detail: appleHits.join("\n"),
+        items: appleHits,
+        recommendation: "Disable in System Settings → Privacy & Security → Analytics & Improvements.",
+      });
+    }
+
+    if (unknownCount > 0) {
+      // Never present unresolved endpoints as clean.
+      findings.push({
+        severity: "low",
+        category: "Unresolved Endpoints",
+        title: `${unknownCount} connection(s) could not be attributed`,
+        detail:
+          "These remote addresses did not resolve to a hostname, so they could not be checked against the tracker list. They are not known-clean.",
+        items: [`${unknownCount} unresolved of ${connectionCount} established`],
+        recommendation: "Inspect with Little Snitch or a DNS log if the count is unexpectedly high.",
       });
     }
   }
 
-  // Sort by severity
-  const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
-  findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+  // --- Suspicious processes ---
+  if (!isOk(psRes)) {
+    unavailable.push({ check: "process list (ps)", reason: psRes.status });
+  } else {
+    const keywords = ["keylog", "keystroke", "spyware", "surveillance", "sniff", "intercept", "meterpreter", "cobalt"];
+    const safe = ["screencapture", "screenshotservices", "activitymonitor", "com.apple", "windowserver", "loginwindow", "corespotlight", "next-server", "system-monitor"];
+    const suspicious = psRes.value
+      .split("\n")
+      .filter((line) => {
+        const l = line.toLowerCase();
+        if (safe.some((s) => l.includes(s))) return false;
+        return keywords.some((k) => l.includes(k)) && !l.includes("grep");
+      })
+      .map((l) => l.trim().split(/\s+/).slice(10).join(" ").substring(0, 80))
+      .filter(Boolean);
 
-  // Privacy score
-  let privacyScore = 100;
-  findings.forEach((f) => {
-    if (f.severity === "critical") privacyScore -= 25;
-    if (f.severity === "high") privacyScore -= 15;
-    if (f.severity === "medium") privacyScore -= 8;
-    if (f.severity === "low") privacyScore -= 3;
-  });
-  privacyScore = Math.max(0, Math.min(100, privacyScore));
+    if (suspicious.length > 0) {
+      findings.push({
+        severity: "critical",
+        category: "Suspicious Processes",
+        title: `${suspicious.length} process(es) with suspicious names`,
+        detail: suspicious.join("\n"),
+        items: suspicious,
+        recommendation: "Investigate immediately — these may observe keystrokes or screen activity.",
+      });
+    }
+  }
 
-  return NextResponse.json({
-    privacyScore,
+  // --- TCC permissions ---
+  const tccDb = `${home}/Library/Application Support/com.apple.TCC/TCC.db`;
+  let highRiskGrants = 0;
+  let tccReadable = true;
+
+  for (const tcc of TCC_CATEGORIES) {
+    const res = await probe("sqlite3", [
+      tccDb,
+      `SELECT client FROM access WHERE service='${tcc.service}' AND auth_value=2`,
+    ]);
+    if (!isOk(res)) {
+      tccReadable = false;
+      continue;
+    }
+    const apps = res.value.split("\n").filter(Boolean);
+    if (apps.length === 0) continue;
+    if (tcc.highRisk) highRiskGrants += apps.length;
+
+    findings.push({
+      severity: tcc.highRisk ? "medium" : "info",
+      category: "App Permissions",
+      title: `${tcc.name}: ${apps.length} app(s) granted`,
+      detail: apps.map((a) => a.split(".").pop() || a).join(", "),
+      items: apps,
+      recommendation: tcc.highRisk
+        ? "Review in System Settings → Privacy & Security and revoke anything unfamiliar."
+        : "Normal permissions. Review anything unexpected.",
+    });
+  }
+
+  if (!tccReadable) {
+    // Previously this failure produced no finding at all, which read as "clean".
+    unavailable.push({ check: "app permissions (TCC database)", reason: "denied" });
+    findings.push({
+      severity: "info",
+      category: "App Permissions",
+      title: "Permission audit unavailable",
+      detail:
+        "The TCC database is protected by macOS. Without Full Disk Access this check cannot run, so no conclusion can be drawn about granted permissions.",
+      items: [tccDb],
+      recommendation:
+        "Grant Full Disk Access to your terminal in System Settings → Privacy & Security to enable this check.",
+    });
+  }
+
+  // --- Persistence ---
+  const knownVendors = ["com.apple.", "com.google.", "com.microsoft.", "com.docker.", "com.spotify."];
+  const agents = [
+    ...(isOk(userAgentsRes) ? userAgentsRes.value.split("\n") : []),
+    ...(isOk(sysAgentsRes) ? sysAgentsRes.value.split("\n") : []),
+    ...(isOk(daemonsRes) ? daemonsRes.value.split("\n") : []),
+  ]
+    .filter(Boolean)
+    .filter((f) => f.endsWith(".plist"))
+    .filter((f) => !knownVendors.some((v) => f.startsWith(v)));
+
+  if (agents.length > 0) {
+    findings.push({
+      severity: agents.length > 5 ? "medium" : "low",
+      category: "Persistence",
+      title: `${agents.length} unrecognised launch agent(s)/daemon(s)`,
+      detail: agents.map((a) => a.replace(".plist", "")).join(", "),
+      items: agents,
+      recommendation: "Check each one. Legitimate apps install these, but so does malware.",
+    });
+  }
+
+  const order: Record<PrivacyFinding["severity"], number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  findings.sort((a, b) => order[a.severity] - order[b.severity]);
+
+  const complete = unavailable.length === 0;
+
+  return {
+    complete,
+    // H-03: no score when the evidence is incomplete.
+    privacyScore: complete
+      ? privacyScore({
+          suspiciousProcesses: findings.filter((f) => f.category === "Suspicious Processes").length,
+          highRiskPermissionGrants: highRiskGrants,
+          unknownLaunchAgents: agents.length,
+          activeTrackers: trackerCount,
+        })
+      : null,
+    unavailable,
     findings,
-    connectionCount: connections.length,
-    trackerCount: trackerConnections.length,
+    connectionCount,
+    resolvedCount,
+    unknownCount,
+    trackerCount,
     timestamp: Date.now(),
-  });
+  };
+}
+
+export async function GET() {
+  try {
+    await assertLocalRequest();
+  } catch (e) {
+    if (e instanceof ForbiddenError) {
+      return NextResponse.json({ error: e.message }, { status: 403 });
+    }
+    throw e;
+  }
+
+  const data = await singleFlight("privacy-scan", scan);
+  return NextResponse.json(data);
 }
