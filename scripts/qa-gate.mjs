@@ -117,6 +117,50 @@ function grepSrc(re, files = srcFiles()) {
   return hits;
 }
 
+/**
+ * Strip comments and string literals so a gate measures *code*, not prose.
+ * Findings are documented inline throughout this codebase, so a naive grep for
+ * e.g. `execSync` matches the explanation of why it was removed.
+ */
+function codeOnly(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments
+    .replace(/^\s*\/\/.*$/gm, " ") // whole-line comments
+    .replace(/([^:])\/\/.*$/gm, "$1 ") // trailing comments (keep URLs in strings rare)
+    .replace(/`(?:[^`\\]|\\.)*`/g, "``") // template literals
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""') // double-quoted strings
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''"); // single-quoted strings
+}
+
+/** Grep across src, ignoring comments and string literals. */
+function grepCode(re, files = srcFiles()) {
+  const hits = [];
+  for (const f of files) {
+    const text = read(f);
+    if (text == null) continue;
+    codeOnly(text)
+      .split("\n")
+      .forEach((line, i) => {
+        if (re.test(line)) hits.push(`${f}:${i + 1}`);
+      });
+  }
+  return hits;
+}
+
+/** Extract the body of a top-level object literal by name. */
+function objectBody(text, name) {
+  const m = text.match(new RegExp(`const ${name}[^=]*=\\s*\\{([\\s\\S]*?)\\n\\};`));
+  return m ? m[1] : "";
+}
+
+/** Modules that actually perform system collection. */
+const COLLECTION_MODULES = [
+  "src/lib/sampler.ts",
+  "src/app/api/cleanup/route.ts",
+  "src/app/api/scan/route.ts",
+  "src/app/api/privacy/route.ts",
+];
+
 // ---------- gate definitions ----------
 
 const PHASES = {
@@ -352,17 +396,19 @@ const PHASES = {
         id: "P2-2",
         name: "no synchronous child_process use in src",
         check: () => {
-          const hits = grepSrc(/execSync|execFileSync|spawnSync/);
-          return { pass: hits.length === 0, detail: hits.join(", ") || "none" };
+          const hits = grepCode(/\b(execSync|execFileSync|spawnSync)\s*\(/);
+          return { pass: hits.length === 0, detail: hits.join(", ") || "none (comment references ignored)" };
         },
       },
       {
         id: "P2-3",
         name: "probes run concurrently (Promise.all fan-out)",
         check: () => {
-          const routes = srcFiles().filter((f) => /app\/api\/.*route\.ts$/.test(f));
-          const missing = routes.filter((f) => !/Promise\.all/.test(read(f) ?? ""));
-          return { pass: missing.length === 0, detail: missing.join(", ") || `${routes.length} routes fan out` };
+          const missing = COLLECTION_MODULES.filter((f) => !/Promise\.all/.test(read(f) ?? ""));
+          return {
+            pass: missing.length === 0,
+            detail: missing.join(", ") || `${COLLECTION_MODULES.length} collection modules fan out`,
+          };
         },
       },
       {
@@ -403,11 +449,20 @@ const PHASES = {
         id: "P2-7",
         name: "no non-finite number can be serialised",
         check: () => {
-          const t = read("src/lib/probe.ts") ?? "";
-          const helper = /Number\.isFinite/.test(t);
-          const routes = srcFiles().filter((f) => /app\/api\/.*route\.ts$/.test(f));
-          const guarded = routes.every((f) => /finite|Finite|safeNum|toNum/.test(read(f) ?? ""));
-          return { pass: helper && guarded, detail: `helper:${helper} routes:${guarded}` };
+          const helper = /Number\.isFinite/.test(read("src/lib/probe.ts") ?? "");
+          // Any module that parses numbers must also guard them.
+          const unguarded = srcFiles().filter((f) => {
+            const code = codeOnly(read(f) ?? "");
+            const parses = /\b(parseFloat|parseInt|Number\.parse(Float|Int))\s*\(/.test(code);
+            if (!parses) return false;
+            return !/finiteNumber|finiteInt|Number\.isFinite/.test(code);
+          });
+          return {
+            pass: helper && unguarded.length === 0,
+            detail: helper
+              ? unguarded.join(", ") || "all numeric parses are finite-guarded"
+              : "probe.ts lacks a finite guard",
+          };
         },
       },
       {
@@ -424,14 +479,19 @@ const PHASES = {
         id: "P2-9",
         name: "scanner categories are mutually exclusive (browsers ≠ Electron)",
         check: () => {
-          const t = read("src/app/api/scan/route.ts") ?? "";
-          const noBrowsersInElectron =
-            !/ELECTRON_APPS[\s\S]*?"Google Chrome"[\s\S]*?\}/.test(t) &&
-            !/ELECTRON_APPS[\s\S]*?\bBrave\b[\s\S]*?\}/.test(t);
-          const claims = /CHROMIUM_BROWSERS|BROWSERS/.test(t);
+          const src = read("src/app/api/scan/route.ts") ?? "";
+          const electron = objectBody(src, "ELECTRON_APPS");
+          const browsers = ["Google Chrome", "Brave", "Firefox", "Safari", "Arc", "Vivaldi", "Opera", "Microsoft Edge"];
+          const leaked = browsers.filter((b) => electron.includes(b));
+          const separateList = /CHROMIUM_BROWSERS/.test(src);
+          // Processes claimed as browsers must be excluded from the Electron pass.
+          const claimsGuard = /claimed\.(add|has)\(/.test(src);
           return {
-            pass: noBrowsersInElectron && claims,
-            detail: `exclusive:${noBrowsersInElectron} separate-list:${claims}`,
+            pass: leaked.length === 0 && separateList && claimsGuard,
+            detail:
+              leaked.length > 0
+                ? `browsers inside ELECTRON_APPS: ${leaked.join(", ")}`
+                : `exclusive (separate CHROMIUM_BROWSERS list, claim guard: ${claimsGuard})`,
           };
         },
       },
