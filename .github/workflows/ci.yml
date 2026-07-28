@@ -34,5 +34,8 @@ jobs:
       - name: Dependency audit
         run: bun audit --audit-level=high || true
 
+      - name: Smoke test (boots the server, renders the page)
+        run: node scripts/smoke.mjs
+
       - name: QA gates (all phases, 10/10 required)
         run: node scripts/qa-gate.mjs all

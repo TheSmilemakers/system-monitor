@@ -9,13 +9,26 @@ import type { NextConfig } from "next";
  * machine (processes, users, permissions, network connections) and must never
  * be written to a shared or disk cache.
  */
+const isDev = process.env.NODE_ENV === "development";
+
+/**
+ * React's development build uses `eval()` for debugging features (callstack
+ * reconstruction, hot reload). Blocking it breaks hydration outright — the page
+ * renders its server markup and then never becomes interactive. React never
+ * uses `eval()` in production, so the allowance is scoped to development and
+ * the shipped policy stays strict.
+ */
+const SCRIPT_SRC = isDev
+  ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+  : "script-src 'self' 'unsafe-inline'";
+
 const SECURITY_HEADERS = [
   {
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
       // Next injects an inline bootstrap; keep everything else locked down.
-      "script-src 'self' 'unsafe-inline'",
+      SCRIPT_SRC,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data:",
       "font-src 'self' data:",

@@ -71,6 +71,7 @@ const lint = () => once("lint", () => run("bunx", ["eslint", "--max-warnings=0"]
 const build = () => once("build", () => run("bunx", ["next", "build"]));
 const tests = () => once("test", () => run("bun", ["test"]));
 const audit = () => once("audit", () => run("bun", ["audit"]));
+const smoke = () => once("smoke", () => run("node", ["scripts/smoke.mjs"]));
 
 /**
  * Advisories reachable from *production* dependencies.
@@ -756,12 +757,16 @@ const PHASES = {
       },
       {
         id: "P4-10",
-        name: "full toolchain green (tsc + lint + test + build)",
+        name: "app actually boots and renders (smoke) + toolchain green",
         check: () => {
-          const ok = typecheck().ok && lint().ok && tests().ok && build().ok;
+          // A build that compiles is not an app that runs: tsc, eslint and
+          // next build all passed green while every page load returned 500.
+          const ok = typecheck().ok && lint().ok && tests().ok && build().ok && smoke().ok;
+          if (ok) return { pass: true, detail: "tsc + eslint + tests + build + smoke 13/13" };
+          const smokeLine = smoke().out.split("\n").find((l) => /SMOKE|FAIL/.test(l)) ?? "";
           return {
-            pass: ok,
-            detail: ok ? "all green" : `tsc:${typecheck().ok} lint:${lint().ok} test:${tests().ok} build:${build().ok}`,
+            pass: false,
+            detail: `tsc:${typecheck().ok} lint:${lint().ok} test:${tests().ok} build:${build().ok} smoke:${smoke().ok} ${smokeLine.replace(/\x1b\[[0-9;]*m/g, "")}`,
           };
         },
       },

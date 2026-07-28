@@ -54,7 +54,12 @@ function sparkColor(level: Level): string {
 }
 
 /** Status conveyed by text as well as colour (M-10). */
-function StatusDot({ level, label }: { level: Level; label: string }) {
+/**
+ * Metric heading: coloured dot (decorative) + visible label + a screen-reader
+ * status phrase. The status follows the label so it reads "Disk — status:
+ * normal" rather than "Disk status: normal. Disk" (M-10).
+ */
+function MetricHeading({ level, label }: { level: Level; label: string }) {
   const cls = level === "critical" ? "bg-red-500" : level === "warn" ? "bg-amber-500" : "bg-emerald-500";
   return (
     <>
@@ -62,9 +67,8 @@ function StatusDot({ level, label }: { level: Level; label: string }) {
         aria-hidden="true"
         className={`inline-block h-2 w-2 rounded-full shadow-sm ${cls} ${level === "critical" ? "motion-safe:animate-pulse" : ""}`}
       />
-      <span className="sr-only">
-        {label} status: {LEVEL_TEXT[level]}.
-      </span>
+      {label}
+      <span className="sr-only"> — status: {LEVEL_TEXT[level]}</span>
     </>
   );
 }
@@ -352,7 +356,7 @@ export default function Dashboard() {
           <Card className="border-border">
             <CardContent className="space-y-1 px-4 py-3">
               <h3 className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                <StatusDot level={levels.cpu} label="CPU" /> CPU
+                <MetricHeading level={levels.cpu} label="CPU" />
               </h3>
               <div className="flex items-end justify-between gap-2">
                 <p className="font-mono text-2xl font-bold tabular-nums">{data.cpu.used.toFixed(1)}%</p>
@@ -369,7 +373,7 @@ export default function Dashboard() {
           <Card className="border-border">
             <CardContent className="space-y-1 px-4 py-3">
               <h3 className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                <StatusDot level={levels.mem} label="Memory" /> Memory
+                <MetricHeading level={levels.mem} label="Memory" />
               </h3>
               <div className="flex items-end justify-between gap-2">
                 <p className="font-mono text-2xl font-bold tabular-nums">
@@ -388,7 +392,7 @@ export default function Dashboard() {
           <Card className="border-border">
             <CardContent className="space-y-1 px-4 py-3">
               <h3 className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                <StatusDot level={levels.swap} label="Swap" /> Swap
+                <MetricHeading level={levels.swap} label="Swap" />
               </h3>
               <div className="flex items-end justify-between gap-2">
                 <p className="font-mono text-2xl font-bold tabular-nums">
@@ -407,7 +411,7 @@ export default function Dashboard() {
           <Card className="border-border">
             <CardContent className="space-y-1 px-4 py-3">
               <h3 className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                <StatusDot level={levels.load} label="Load" /> Load
+                <MetricHeading level={levels.load} label="Load" />
               </h3>
               <div className="flex items-end justify-between gap-2">
                 <p className="font-mono text-2xl font-bold tabular-nums">{data.load[0].toFixed(1)}</p>
@@ -426,7 +430,7 @@ export default function Dashboard() {
           <CardContent className="flex flex-wrap items-center gap-4 px-4 py-3">
             <div>
               <h3 className="mb-1 flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                <StatusDot level={levels.disk} label="Disk" /> Disk
+                <MetricHeading level={levels.disk} label="Disk" />
               </h3>
               <p className="font-mono text-lg font-bold tabular-nums">{data.disk.percent}%</p>
               <p className="font-mono text-xs text-muted-foreground">{data.disk.used} / {data.disk.total}</p>

@@ -17,6 +17,13 @@
 > | Cleanup injection payloads | passed the allowlist | rejected as unknown ids |
 > | Failed probes | scored as healthy | `complete:false`, score withheld |
 >
+> **A build that compiles is not an app that runs.** `tsc`, `eslint` and
+> `next build` were all green while every page load returned HTTP 500: Phase 0
+> removed `shadcn` from dependencies, but `globals.css` still imported a
+> stylesheet from it, and Turbopack panicked at request time. The stylesheet is
+> now vendored, and `scripts/smoke.mjs` boots the server and asserts the page
+> renders — wired into gate P4-10 and CI so it cannot regress.
+>
 > Remaining verification gaps are listed in [§9](#9-what-remains-unverified).
 > The register below is kept as the historical record; each entry's fix is
 > implemented unless marked otherwise.
@@ -820,8 +827,8 @@ lsof -i -nP | grep ESTABLISHED | awk '{print $9}' | grep -cE '[a-zA-Z]{3,}\.'   
 Stated plainly so the gates are not mistaken for proof of more than they check.
 
 - **Colour contrast** — not measured. No computed-style contrast pass was run, so this document makes no WCAG contrast claim.
-- **Screen-reader behaviour** — live regions, accessible names, headings and the table caption are verified *structurally* (present and correctly associated). No assistive-technology run was performed.
-- **Reflow at 320 px and 400% zoom** — the fixed 280 px chart width is gone and the grid collapses to one column, verified by inspection of the markup, not in a browser at those viewports.
+- **Screen-reader behaviour** — verified in a real browser accessibility tree, not only in source: `h1` "System Monitor", `h2` "Process alerts"/"System metrics", the table caption, and PID-bearing control names (`button "Terminate WindowServer, PID 609"`) all resolve correctly. Heading counts: 1×h1, 3×h2, 5×h3. No screen-reader software was driven, so announcement *order and verbosity* remain unverified.
+- **Reflow at 320 px** — verified in a browser: `documentElement.scrollWidth === clientWidth` (0 px horizontal overflow), 4 responsive `viewBox` charts, and the process table scrolls inside its own `overflow-x-auto` container (555 px content in a 288 px box) rather than forcing the page sideways. **400% zoom remains unverified.**
 - **Tracker detection recall** — the pipeline is proven capable of matching (resolution now yields hostnames; a live scan resolved 78 of 113 connections and matched 1 tracker). Actual precision and recall against a known corpus is not measured.
 - **The `partial` probe status** — introduced after runtime testing showed `du` discarding usable lower bounds. Exercised by unit tests and observed live, but it is newer than the rest of the collection layer.
 - **Intel Macs** — page size is now read from `hw.pagesize` and unit-tested against this host (16384, Apple Silicon). The 4096 path is covered by the fallback test but has not run on real Intel hardware.
