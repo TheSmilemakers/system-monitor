@@ -48,10 +48,30 @@ function requestWithHost(path, host) {
   });
 }
 
-async function waitForBoot(child) {
+/**
+ * Explain an early exit instead of reporting a bare exit code.
+ *
+ * Next 16 holds a per-project dev lock (not per port): any other `next dev`
+ * in this directory makes ours exit 1 immediately. That message used to be
+ * captured and thrown away, which hid a real outage behind "code 1".
+ */
+function explainEarlyExit(code, serverLog) {
+  const plain = serverLog.replace(/\x1b\[[0-9;]*m/g, "");
+  const lock = plain.match(/Another next dev server is already running[\s\S]*?PID:\s*(\d+)/);
+  if (lock) {
+    return (
+      `server exited early (code ${code}): another next dev server holds this project's dev lock (PID ${lock[1]}).\n` +
+      `  Stop it (kill ${lock[1]}) or run the smoke test with --prod, which uses next start and does not take the lock.`
+    );
+  }
+  const tail = plain.trim().split("\n").slice(-15).join("\n  ");
+  return `server exited early (code ${code}). Last server output:\n  ${tail}`;
+}
+
+async function waitForBoot(child, getLog) {
   const deadline = Date.now() + BOOT_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`server exited early (code ${child.exitCode})`);
+    if (child.exitCode !== null) throw new Error(explainEarlyExit(child.exitCode, getLog()));
     try {
       const res = await fetch(`${BASE}/api/stats`, { signal: AbortSignal.timeout(5000) });
       if (res.status < 500) return true;
@@ -82,7 +102,7 @@ async function main() {
     console.log(`\n\x1b[1mSmoke test (${PROD ? "production" : "development"})\x1b[0m`);
     console.log("─".repeat(74));
 
-    const booted = await waitForBoot(child);
+    const booted = await waitForBoot(child, () => serverLog);
     record("server boots", booted, booted ? `listening on ${BASE}` : "did not become ready");
     if (!booted) throw new Error("boot failed");
 

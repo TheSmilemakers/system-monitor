@@ -82,6 +82,23 @@ function prodAdvisories() {
   return once("prodAdv", () => {
     const out = audit().out.replace(/\x1b\[[0-9;]*m/g, "");
     const prod = new Set(Object.keys(pkg().dependencies ?? {}));
+
+    // Fail closed. When the registry is unreachable `bun audit` prints an
+    // error and no summary line; that used to parse as "no advisories" and
+    // pass the gate. Only an explicit opt-out may skip the check, and it
+    // is recorded in the detail so a green run is never silent about it.
+    const summarised = /\d+ vulnerabilit(y|ies)|No vulnerabilities/i.test(out);
+    if (!summarised) {
+      if (process.env.ALLOW_OFFLINE_QA === "1") return [];
+      const reason = out.trim().split("\n").slice(-3).join(" | ").slice(0, 160) || "no output";
+      return [
+        {
+          pkg: `audit unavailable, failing closed: ${reason}; set ALLOW_OFFLINE_QA=1 to skip deliberately`,
+          via: "bun audit",
+          severity: "critical",
+        },
+      ];
+    }
     const blocks = out.split(/\n(?=\S)/);
     const offenders = [];
     for (const b of blocks) {
@@ -697,9 +714,20 @@ const PHASES = {
         check: () => {
           const t = read(".github/workflows/ci.yml");
           if (!t) return { pass: false, detail: "workflow missing" };
-          const need = ["typecheck", "max-warnings=0", "bun test", "build", "audit"];
-          const missing = need.filter((n) => !t.includes(n));
-          return { pass: missing.length === 0, detail: missing.join(", ") || "all gates wired" };
+          // CI delegates to `bun run check` so local and CI can never drift;
+          // expand package.json scripts so the gates are checked where they live.
+          const s = pkg().scripts ?? {};
+          const expand = (cmd, depth = 0) =>
+            depth > 4
+              ? cmd
+              : cmd.replace(/bun run (\S+)/g, (m, name) => (s[name] ? `${m} { ${expand(s[name], depth + 1)} }` : m));
+          const wired = t.includes("bun run check") ? `${t}\n${expand("bun run check")}` : t;
+          const need = ["typecheck", "max-warnings=0", "bun test", "audit --prod", "next build", "smoke", "qa"];
+          const missing = need.filter((n) => !wired.includes(n));
+          // The gating audit must be able to fail: no `|| true` anywhere in the check chain.
+          const softened = /\|\|\s*true/.test(expand("bun run check"));
+          if (softened) missing.push("audit is softened with || true");
+          return { pass: missing.length === 0, detail: missing.join(", ") || "all gates wired via bun run check" };
         },
       },
       {

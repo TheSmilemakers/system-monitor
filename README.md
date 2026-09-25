@@ -61,15 +61,29 @@ Open <http://localhost:3000>. `bun run dev` and `bun run start` both bind `127.0
 ## Development
 
 ```bash
+bun run check:fast  # typecheck, lint (zero warnings), tests
+bun run check       # what CI runs, exactly: check:fast, production dependency
+                    # audit (hard fail), build, smoke against next start, smoke
+                    # against next dev, every QA phase at 10/10
+
 bun run typecheck   # tsc --noEmit
 bun run lint        # eslint, zero warnings
 bun run test        # bun test
+bun run audit:prod  # bun audit --prod --audit-level=high
 bun run build       # next build
-bun run check       # all of the above
-
+bun run smoke       # boots the dev server and asserts every route responds
+bun run smoke:prod  # same against the production server
 bun run qa 0        # QA gate for a phase (0-4)
 bun run qa all      # every phase; exits non-zero unless each scores 10/10
 ```
+
+`bun run dev` runs `scripts/preflight.mjs` first. It fails in a few milliseconds,
+with the reason, when Node is running under Rosetta on an Apple Silicon Mac or
+the lightningcss binary for this architecture is missing.
+
+CI (`.github/workflows/ci.yml`) calls `bun run check`, so local green and CI
+green mean the same thing. Bun is pinned through `packageManager`; actions are
+pinned to commit SHAs; Dependabot opens grouped weekly updates.
 
 ### Troubleshooting: every page returns HTTP 500 on localhost
 
@@ -87,7 +101,12 @@ fix the launch environment instead:
   Get Info for the launcher app, or prefix the command with `arch -arm64`.
 - Next 16 keeps a per-project dev lock. A broken server left on port 3000 makes
   every other `next dev` here (including `bun run smoke`) exit with code 1
-  until it is killed.
+  until it is killed. The smoke script now names the PID holding the lock.
+- One run under Rosetta poisons the Turbopack dev cache: the failed x64 CSS
+  transform is cached, so pages keep returning 500 even after Node runs
+  natively. Delete `.next/dev` once and start again.
+- `bun run dev` runs `scripts/preflight.mjs` first and refuses to start under
+  Rosetta, so this failure now surfaces as a one-line error instead of 500s.
 
 ### Architecture
 

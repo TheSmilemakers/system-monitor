@@ -2,40 +2,53 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: ["main"]
   pull_request:
+
+# One run per ref; a newer push cancels the stale run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   check:
     # The app targets macOS system tooling (top, vm_stat, sysctl, lsof, pmset).
-    runs-on: macos-latest
+    runs-on: macos-15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: latest
+          # Pinned through package.json "packageManager" so local and CI agree.
+          bun-version-file: package.json
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Typecheck
-        run: bun run typecheck
+      # `bun run check` is the single source of truth for what "green" means.
+      # It runs: typecheck, lint (zero warnings), tests, production dependency
+      # audit (hard fail), build, smoke against the production server, smoke
+      # against the dev server, and every QA gate phase at 10/10.
+      - name: Full check (same command as local)
+        run: bun run check
 
-      - name: Lint (zero warnings)
-        run: bunx eslint --max-warnings=0
-
-      - name: Tests
-        run: bun test
-
-      - name: Build
-        run: bun run build
-
-      - name: Dependency audit
-        run: bun audit --audit-level=high || true
-
-      - name: Smoke test (boots the server, renders the page)
-        run: node scripts/smoke.mjs
-
-      - name: QA gates (all phases, 10/10 required)
-        run: node scripts/qa-gate.mjs all
+      # The full tree audit includes the eslint tool chain; it is reported, not gated.
+      - name: Full dependency audit (report only)
+        if: always()
+        run: |
+          {
+            echo '## Full dependency audit (dev tree included, informational)'
+            echo '```'
+            bun audit --audit-level=high || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

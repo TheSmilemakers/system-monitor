@@ -2,29 +2,35 @@
   "name": "system-monitor",
   "version": "0.2.0",
   "private": true,
-  "description": "Lightweight macOS system monitor with process manager and privacy scanner — built with Next.js and shadcn/ui",
+  "description": "Lightweight macOS system monitor with process manager and privacy scanner \u2014 built with Next.js and shadcn/ui",
   "license": "MIT",
   "author": "Rajan",
   "engines": {
     "node": ">=20.9.0"
   },
+  "packageManager": "bun@1.3.5",
   "scripts": {
+    "predev": "node scripts/preflight.mjs",
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
     "lint": "eslint --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "check": "bun run typecheck && bun run lint && bun run test && bun run build && bun run smoke",
+    "audit:prod": "bun audit --prod --audit-level=high",
     "smoke": "node scripts/smoke.mjs",
-    "qa": "node scripts/qa-gate.mjs"
+    "smoke:prod": "node scripts/smoke.mjs --prod",
+    "qa": "node scripts/qa-gate.mjs",
+    "check:fast": "bun run typecheck && bun run lint && bun run test",
+    "check": "bun run check:fast && bun run audit:prod && bun run build && bun run smoke:prod && bun run smoke && bun run qa all",
+    "preflight": "node scripts/preflight.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.577.0",
-    "next": "^16.2.12",
+    "next": "16.3.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tailwind-merge": "^3.6.0",
@@ -37,13 +43,14 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^16.2.12",
+    "eslint-config-next": "16.3.6",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3"
   },
   "overrides": {
     "postcss": "^8.5.24",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.4",
+    "nanoid": "^3.3.18"
   },
   "ignoreScripts": [
     "sharp",

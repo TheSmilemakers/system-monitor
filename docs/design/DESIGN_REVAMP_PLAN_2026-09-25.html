@@ -448,7 +448,24 @@ const band = (over, dim, k = 0.55) => (over * dim * k) / (dim + k * Math.abs(ove
 <li>Review motion at quarter speed with fresh eyes; check every interruption path by grabbing mid-flight.</li>
 </ul>
 
-<h2>10. Open questions</h2>
+<h2>10. Decisions taken on 26/09/2026</h2>
+<p>Walked through with Rajan; every item below is settled and supersedes the corresponding option text above.</p>
+<table>
+<tr><th>Decision</th><th>Outcome</th></tr>
+<tr><td>Build pipeline sequencing</td><td>Gate fixes and CI hardening immediately; route and action tests before design phase A; DOM tests with phase A, axe with phase B; the three free TypeScript flags now, index-access as its own PR after A; pre-commit hooks, Prettier and knip: yes.</td></tr>
+<tr><td>Concept and hue</td><td>Phosphor bench instrument; phosphor green as the dominant signal hue, amber for caution, magenta for alarm, cyan for network and selection.</td></tr>
+<tr><td>Typography</td><td>Chakra Petch for titles and the four vitals, DSEG7 segments at retro level 1, Geist for everything else.</td></tr>
+<tr><td>Retro and themes</td><td>Level 1 is the default; the daylight theme ships in phase A; level 2 tube mode ships as a toggle, off by default.</td></tr>
+<tr><td>Hero and layout</td><td>Vector scope on canvas; bench layout on desktop.</td></tr>
+<tr><td>Extras</td><td>Tape scrubber, printout export and CRT toggle promoted to ship. Split-flap and constellation stay prototypes. Radar sweep parked. All other parked ideas stay parked.</td></tr>
+<tr><td>Explainers</td><td>Man pages, knowledge base and heuristics; Kai seeds the first 250 knowledge-base entries in phase C. The model-backed explainer is deferred until the offline layers show their gaps.</td></tr>
+<tr><td>Inspector actions</td><td>All seven, with suspend offered before kill and undo on every non-destructive action.</td></tr>
+<tr><td>Security monitor</td><td>All eight lamps, core four first. Drift surfaces staged: processes, destinations, ports and persistence, then accounts, credentials, extensions, sudo and DNS. SQLite storage, server-sent events, macOS notifications, mini window, 30-day retention.</td></tr>
+<tr><td>Delivery order</td><td>Build step 1, then A, then B and C in parallel, then D, then E.</td></tr>
+<tr><td>Immediate action</td><td>Build step 1 starts now on the current branch; a draft PR to main carries the README fix, both plans and the step 1 changes.</td></tr>
+</table>
+
+<h2>11. Open questions</h2>
 <ul>
 <li>Full Disk Access is needed for TCC and some log reads. The annunciator should show a "grant access" lamp rather than silently degrading.</li>
 <li>The knowledge base needs an owner and a contribution format; the man-page layer covers the long tail meanwhile.</li>
