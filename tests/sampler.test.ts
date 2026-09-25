@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 
+import { __resetIdentityCache } from "@/lib/identity";
 import { __resetMachineInfo } from "@/lib/probe";
 import {
   ALERT_MIN_DURATION_MS,
@@ -9,7 +10,12 @@ import {
   sample,
 } from "@/lib/sampler";
 
-import { PS_OUTPUT_IDLE, installFakeProbe, resetSeams } from "./fixtures";
+import {
+  PS_DETAILED_OUTPUT_IDLE,
+  installFakeCodesign,
+  installFakeProbe,
+  resetSeams,
+} from "./fixtures";
 
 /**
  * The sampler's orchestration: parsing every probe into the stats shape,
@@ -23,7 +29,9 @@ const T0 = new Date("2026-09-26T00:30:00Z");
 beforeEach(() => {
   __resetMachineInfo();
   __resetSampler();
+  __resetIdentityCache();
   installFakeProbe();
+  installFakeCodesign();
   setSystemTime(T0);
 });
 
@@ -62,8 +70,8 @@ describe("sample()", () => {
     expect(s.disk).toEqual({ total: "926Gi", used: "12Gi", available: "800Gi", percent: 2 });
     expect(s.processes.total).toBe(612);
     expect(s.processes.threads).toBe(3210);
-    expect(s.processes.top.map((p) => p.pid)).toEqual([648, 637, 900, 902, 901, 950]);
-    expect(s.processes.top[0]).toEqual({
+    expect(s.processes.top.map((p) => p.pid)).toEqual([648, 637, 900, 902, 901, 903, 950]);
+    expect(s.processes.top[0]).toMatchObject({
       user: "rajan",
       pid: 648,
       cpu: 72,
@@ -169,7 +177,7 @@ describe("alerts require sustained load by wall clock (M-03, M-17)", () => {
     setSystemTime(new Date(T0.getTime() + ALERT_MIN_DURATION_MS));
     expect((await sample()).alerts).toHaveLength(1);
 
-    installFakeProbe({ ps: () => ({ status: "ok", value: PS_OUTPUT_IDLE }) });
+    installFakeProbe({ ps: () => ({ status: "ok", value: PS_DETAILED_OUTPUT_IDLE }) });
     setSystemTime(new Date(T0.getTime() + ALERT_MIN_DURATION_MS + 1000));
     expect((await sample()).alerts).toEqual([]);
 
@@ -180,7 +188,7 @@ describe("alerts require sustained load by wall clock (M-03, M-17)", () => {
   });
 
   test("only processes at or above half a core are tracked", async () => {
-    installFakeProbe({ ps: () => ({ status: "ok", value: PS_OUTPUT_IDLE }) });
+    installFakeProbe({ ps: () => ({ status: "ok", value: PS_DETAILED_OUTPUT_IDLE }) });
     await sample();
     setSystemTime(new Date(T0.getTime() + ALERT_MIN_DURATION_MS * 2));
     expect((await sample()).alerts).toEqual([]);

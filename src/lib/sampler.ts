@@ -1,3 +1,4 @@
+import { identityFor, parseElapsed, type TrustState } from "./identity";
 import {
   finiteInt,
   finiteNumber,
@@ -21,6 +22,8 @@ export const SAMPLE_MIN_INTERVAL_MS = 1_000;
 export const HISTORY_WINDOW_MS = 5 * 60 * 1_000;
 export const CPU_ALERT_THRESHOLD_PER_CORE = 0.5; // fraction of one core
 export const ALERT_MIN_DURATION_MS = 9_000;
+/** Rows sent per sample. The whole table is sortable client-side. */
+export const PROCESS_LIMIT = 1_500;
 
 export interface HistoryPoint {
   ts: number;
@@ -33,11 +36,20 @@ export interface HistoryPoint {
 export interface ProcessInfo {
   user: string;
   pid: number;
+  ppid: number;
   /** Percent of ONE core, as reported by ps (may exceed 100) — see M-17. */
   cpu: number;
   mem: number;
   rss: number;
+  /** Display name: the executable's basename. */
   command: string;
+  /** Absolute executable path when ps reports one; otherwise the bare name. */
+  path: string;
+  /** Seconds since the process started, from ps ELAPSED. */
+  elapsed: number;
+  trust: TrustState;
+  publisher: string | null;
+  bundleId: string | null;
 }
 
 export interface ProcessAlert {
@@ -82,8 +94,55 @@ export interface StatsSample {
   timestamp: number;
 }
 
-/** Parse `ps aux` output into structured rows. Exported for parser tests. */
-export function parsePsAux(raw: string, limit = 20): ProcessInfo[] {
+/** The ps columns the sampler asks for, in order. `comm` is last because it may contain spaces. */
+export const PS_COLUMNS = "user=,pid=,ppid=,%cpu=,%mem=,rss=,etime=,comm=";
+
+/** Basename of an executable path, or the name itself when there is no path. */
+export function displayName(path: string): string {
+  const base = path.split("/").filter(Boolean).pop() ?? path;
+  return base || "unknown";
+}
+
+/**
+ * Parse `ps -axwwo user=,pid=,ppid=,%cpu=,%mem=,rss=,etime=,comm=` output.
+ * Exported for parser tests.
+ */
+export function parsePsDetailed(raw: string, limit = PROCESS_LIMIT): ProcessInfo[] {
+  return raw
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.trim().split(/\s+/);
+      const path = parts.slice(7).join(" ");
+      const identity = identityFor(path);
+      return {
+        user: parts[0] ?? "?",
+        pid: finiteInt(parts[1], 0),
+        ppid: finiteInt(parts[2], 0),
+        cpu: finiteNumber(parts[3], 0),
+        mem: finiteNumber(parts[4], 0),
+        rss: finiteInt(parts[5], 0) * 1024,
+        command: displayName(path),
+        path,
+        elapsed: parseElapsed(parts[6] ?? ""),
+        trust: identity.trust,
+        publisher: identity.publisher,
+        bundleId: identity.bundleId,
+      };
+    })
+    .filter((p) => p.pid > 0)
+    .sort((a, b) => b.cpu - a.cpu)
+    .slice(0, limit);
+}
+
+/**
+ * Parse `ps aux` output into structured rows. Used by the scan and privacy
+ * routes, which need the full argument list. Exported for parser tests.
+ */
+export function parsePsAux(
+  raw: string,
+  limit = 20,
+): Omit<ProcessInfo, "ppid" | "path" | "elapsed" | "trust" | "publisher" | "bundleId">[] {
   return raw
     .split("\n")
     .slice(1) // header
@@ -123,7 +182,7 @@ export async function sample(): Promise<StatsSample> {
     probe("vm_stat", []),
     probe("sysctl", ["vm.swapusage"]),
     probe("df", ["-h", "/"]),
-    probe("ps", ["aux"], 8_000),
+    probe("ps", ["-axwwo", PS_COLUMNS], 8_000),
     probe("pmset", ["-g", "batt"]),
     probe("uptime", []),
   ]);
@@ -175,7 +234,7 @@ export async function sample(): Promise<StatsSample> {
   const dfParts = (hasValue(dfRes) ? dfRes.value : "").split("\n").slice(-1)[0]?.split(/\s+/) ?? [];
 
   // --- Processes ---
-  const allProcs = hasValue(psRes) ? parsePsAux(psRes.value, 20) : [];
+  const allProcs = hasValue(psRes) ? parsePsDetailed(psRes.value) : [];
 
   // --- Battery ---
   const battRaw = hasValue(battRes) ? battRes.value : "";

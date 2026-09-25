@@ -2,11 +2,13 @@
  * Shared fixtures for exercising production entry points (route handlers,
  * server actions, the sampler) against recorded macOS tool output.
  *
- * Installed through the seams in `@/lib/probe` and `@/lib/guard`, so the real
- * machine is never consulted and Bun's process-wide module mocks are avoided.
+ * Installed through the seams in `@/lib/probe`, `@/lib/guard` and
+ * `@/lib/identity`, so the real machine is never consulted and Bun's
+ * process-wide module mocks are avoided.
  */
 
 import { __setHeadersProvider } from "@/lib/guard";
+import { __setCodesignRunner } from "@/lib/identity";
 import { __setProbeImpl, type Probe } from "@/lib/probe";
 
 export const TOP_OUTPUT = [
@@ -38,7 +40,7 @@ export const DF_OUTPUT = [
   "/dev/disk3s1s1   926Gi    12Gi   800Gi     2%  500000 8000000000    0%   /",
 ].join("\n");
 
-/** Column order: USER PID %CPU %MEM VSZ RSS TT STAT STARTED TIME COMMAND */
+/** `ps aux` column order: USER PID %CPU %MEM VSZ RSS TT STAT STARTED TIME COMMAND */
 export const PS_OUTPUT = [
   "USER   PID  %CPU %MEM      VSZ    RSS   TT  STAT STARTED      TIME COMMAND",
   "rajan  648  72.0  0.4 12345678  63488   ??  S    Mon07AM   1:23.45 /System/Library/PrivateFrameworks/FileProvider.framework/Support/fileproviderd",
@@ -47,6 +49,23 @@ export const PS_OUTPUT = [
   "rajan  902   2.0  0.9  1234567 122880   ??  S    Mon07AM   0:01.00 /Applications/Slack.app/Contents/MacOS/Slack",
   "root   637  11.1  0.1  1234567  15360   ??  Ss   Mon07AM   0:10.00 /usr/sbin/filecoordinationd",
   "rajan  950   0.5  0.1  1234567  10240   ??  S    Mon07AM   0:00.10 /usr/libexec/trustd",
+].join("\n");
+
+/** `ps -axwwo user=,pid=,ppid=,%cpu=,%mem=,rss=,etime=,comm=`: the sampler's form. */
+export const PS_DETAILED_OUTPUT = [
+  "rajan    648     1  72.0  0.4  63488  18-00:12:06 /System/Library/PrivateFrameworks/FileProvider.framework/Support/fileproviderd",
+  "rajan    900     1   3.0  1.4 227328     03:23:33 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "rajan    901     1   1.0  0.5  81920        05:12 /Applications/Safari.app/Contents/MacOS/Safari",
+  "rajan    902     1   2.0  0.9 122880  12-05:04:40 /Applications/Slack.app/Contents/MacOS/Slack",
+  "rajan    903   900   0.8  0.6  70000     01:00:00 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/140.0.0.0/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)",
+  "root     637     1  11.1  0.1  15360  18-00:12:06 /usr/sbin/filecoordinationd",
+  "rajan    950     1   0.5  0.1  10240  18-00:12:00 /usr/libexec/trustd",
+  "root       0     0   0.0  0.0      0  18-00:12:10 kernel_task",
+].join("\n");
+
+export const PS_DETAILED_OUTPUT_IDLE = [
+  "rajan    648     1   5.0  0.4  63488  18-00:12:06 /System/Library/PrivateFrameworks/FileProvider.framework/Support/fileproviderd",
+  "root     637     1   1.1  0.1  15360  18-00:12:06 /usr/sbin/filecoordinationd",
 ].join("\n");
 
 export const PS_OUTPUT_IDLE = [
@@ -75,6 +94,42 @@ export const SYS_AGENTS_OUTPUT =
   "com.apple.foo.plist\ncom.docker.vmnetd.plist\ncom.acme.helper.plist";
 export const DAEMONS_OUTPUT = "com.apple.bar.plist";
 
+/** Recorded `codesign -dv --verbose=2` output for each trust case. */
+export const CODESIGN_APPLE = [
+  "Executable=/usr/sbin/filecoordinationd",
+  "Identifier=com.apple.filecoordinationd",
+  "Format=Mach-O universal (x86_64 arm64e)",
+  "Authority=Software Signing",
+  "Authority=Apple Code Signing Certification Authority",
+  "Authority=Apple Root CA",
+  "TeamIdentifier=not set",
+].join("\n");
+
+export const CODESIGN_DEVELOPER_ID = [
+  "Identifier=com.google.Chrome",
+  "Format=app bundle with Mach-O universal (x86_64 arm64)",
+  "Authority=Developer ID Application: Google LLC (EQHXZ8M8AV)",
+  "Authority=Developer ID Certification Authority",
+  "Authority=Apple Root CA",
+  "TeamIdentifier=EQHXZ8M8AV",
+].join("\n");
+
+export const CODESIGN_APP_STORE = [
+  "Identifier=com.example.storeapp",
+  "Authority=Apple Mac OS Application Signing",
+  "Authority=Apple Worldwide Developer Relations Certification Authority",
+  "Authority=Apple Root CA",
+  "TeamIdentifier=ABCDE12345",
+].join("\n");
+
+export const CODESIGN_ADHOC = [
+  "Identifier=a.out",
+  "Signature=adhoc",
+  "TeamIdentifier=not set",
+].join("\n");
+
+export const CODESIGN_UNSIGNED = "/Users/rajan/Desktop/launch: code object is not signed at all";
+
 const ok = (value: string): Probe<string> => ({ status: "ok", value });
 
 /** Per-command fixture responses; override any of them per test. */
@@ -101,8 +156,10 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
       case "df":
         return ok(DF_OUTPUT);
       case "ps":
-        // `ps -o user=,lstart= -p <pid>` is process identity; `ps aux` is the list.
+        // `ps -o user=,lstart= -p <pid>` is process identity; `-axwwo` is the
+        // sampler's detailed list; `ps aux` is what the scans read.
         if (args[0] === "-o") return ok("rajan Mon Sep 22 07:00:00 2026");
+        if (args[0] === "-axwwo") return ok(PS_DETAILED_OUTPUT);
         return ok(PS_OUTPUT);
       case "pmset":
         return ok(PMSET_OUTPUT);
@@ -136,6 +193,26 @@ export function installFakeProbe(overrides: ProbeOverrides = {}): void {
   __setProbeImpl(fakeProbe(overrides));
 }
 
+/** Codesign by path prefix: Apple for /System and /usr, Developer ID for /Applications. */
+export function fakeCodesign(overrides: Record<string, { ok: boolean; output: string }> = {}) {
+  return async (path: string): Promise<{ ok: boolean; output: string }> => {
+    const custom = overrides[path];
+    if (custom) return custom;
+    if (path.startsWith("/System") || path.startsWith("/usr") || path.startsWith("/sbin")) {
+      return { ok: true, output: CODESIGN_APPLE };
+    }
+    if (path.startsWith("/Applications")) return { ok: true, output: CODESIGN_DEVELOPER_ID };
+    if (path.startsWith("/opt/homebrew")) return { ok: true, output: CODESIGN_ADHOC };
+    return { ok: false, output: CODESIGN_UNSIGNED };
+  };
+}
+
+export function installFakeCodesign(
+  overrides: Record<string, { ok: boolean; output: string }> = {},
+): void {
+  __setCodesignRunner(fakeCodesign(overrides));
+}
+
 export function installHeaders(values: Record<string, string | undefined>): void {
   const map = new Map<string, string>();
   for (const [k, v] of Object.entries(values)) if (v !== undefined) map.set(k.toLowerCase(), v);
@@ -151,4 +228,5 @@ export function installLoopbackHeaders(): void {
 export function resetSeams(): void {
   __setProbeImpl(null);
   __setHeadersProvider(null);
+  __setCodesignRunner(null);
 }

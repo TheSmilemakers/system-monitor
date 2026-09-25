@@ -4,12 +4,19 @@ import { GET as getCleanup } from "@/app/api/cleanup/route";
 import { GET as getPrivacy } from "@/app/api/privacy/route";
 import { GET as getScan } from "@/app/api/scan/route";
 import { GET as getStats } from "@/app/api/stats/route";
+import { __resetIdentityCache, identitiesSettled } from "@/lib/identity";
 import { __resetMachineInfo } from "@/lib/probe";
 import { __resetResolveCache } from "@/lib/resolve-host";
 import { __resetSampler } from "@/lib/sampler";
 import { parseCleanup, parsePrivacy, parseScan, parseStats } from "@/lib/schemas";
 
-import { installFakeProbe, installHeaders, installLoopbackHeaders, resetSeams } from "./fixtures";
+import {
+  installFakeCodesign,
+  installFakeProbe,
+  installHeaders,
+  installLoopbackHeaders,
+  resetSeams,
+} from "./fixtures";
 
 /**
  * Route handlers invoked as functions, against fixture tool output.
@@ -25,7 +32,9 @@ beforeEach(() => {
   __resetMachineInfo();
   __resetSampler();
   __resetResolveCache();
+  __resetIdentityCache();
   installFakeProbe();
+  installFakeCodesign();
   installLoopbackHeaders();
 });
 
@@ -84,6 +93,17 @@ describe("GET /api/stats", () => {
     expect(stats.processes.top[0]?.pid).toBe(648);
     expect(stats.battery).toEqual({ percent: 80, charging: true });
     expect(stats.uptime).toBe("18 days, 11 mins");
+    expect(stats.processes.top[0]?.trust).toBe("pending");
+
+    // A later sample carries the resolved identity.
+    await identitiesSettled();
+    const again = parseStats(await (await getStats()).json());
+    expect(again.processes.top[0]).toMatchObject({ trust: "apple", publisher: "Apple", ppid: 1 });
+    expect(again.processes.top.find((p) => p.pid === 900)).toMatchObject({
+      trust: "developer-id",
+      publisher: "Google LLC",
+      bundleId: "com.google.Chrome",
+    });
   });
 
   test("returns 503, not zero-filled data, when every core probe fails", async () => {
