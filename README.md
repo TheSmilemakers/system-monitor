@@ -71,6 +71,24 @@ bun run qa 0        # QA gate for a phase (0-4)
 bun run qa all      # every phase; exits non-zero unless each scores 10/10
 ```
 
+### Troubleshooting: every page returns HTTP 500 on localhost
+
+If the dev server boots but every route is a 500 and the log says
+`Cannot find module '../lightningcss.darwin-x64.node'`, Node is running under
+Rosetta on an Apple Silicon Mac. `bun install` only fetches the native
+`lightningcss-darwin-arm64` binary, so an x86_64 Node process cannot load it.
+Do not add the x64 binary as a dependency (that was tried and reverted as M-13);
+fix the launch environment instead:
+
+- Check with `node -p process.arch` from the same shell or launcher that starts
+  the app. It must print `arm64`.
+- A universal Node such as `/usr/local/bin/node` picks the x86_64 slice whenever
+  its parent was launched with "Open using Rosetta". Untick that in Finder's
+  Get Info for the launcher app, or prefix the command with `arch -arm64`.
+- Next 16 keeps a per-project dev lock. A broken server left on port 3000 makes
+  every other `next dev` here (including `bun run smoke`) exit with code 1
+  until it is killed.
+
 ### Architecture
 
 | Path | Purpose |
