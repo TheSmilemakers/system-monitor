@@ -336,7 +336,119 @@ The daemon controlling the interaction between file provider extensions and file
 <li><strong>Testing</strong>: each new parser (codesign output, man DESCRIPTION, lsof rows, scutil dns, sfltool) gets fixture-based unit tests; the drift rules get table-driven tests; the inspector gets a happy-dom render test.</li>
 </ul>
 
-<h2>9. Open questions</h2>
+<h2>9. Interaction and motion specification</h2>
+<p>This section applies Apple's fluid-interface principles (Designing Fluid Interfaces, WWDC 2018; Principles of Great Design, WWDC 2026) to every interactive surface in the plan. The through-line: motion starts from the current on-screen value, inherits the user's velocity, projects momentum forward, and can be grabbed and reversed at any instant. Section 2's "Motion and sound" notes are superseded by the values here.</p>
+
+<h3>9.1 Response: nothing waits for release</h3>
+<ul>
+<li>Every row, lamp, tab and button changes state on <code>pointerdown</code>, not on <code>click</code>. Rows lift to the bezel tone in under 16 ms; the kill and suspend controls show their pressed state instantly and commit on release, with cancel-by-dragging-away.</li>
+<li>The polling hook's data arrives every 5 s, but interaction never waits on it. Opening the inspector renders the identity and explainer from cache immediately and fills live behaviour when the next sample lands, with a text "sampling" state rather than a spinner.</li>
+<li>Audit list for the build: no debounce on the filter box above 50 ms, no artificial delay before the command palette opens, no transition-end waits before the inspector accepts input.</li>
+</ul>
+
+<h3>9.2 Direct manipulation and interruptibility</h3>
+<table>
+<tr><th>Surface</th><th>Gesture</th><th>Behaviour</th></tr>
+<tr><td>Inspector (desktop, right drawer)</td><td>Drag the left edge to resize; swipe right to dismiss</td><td>Tracks the pointer 1:1 with the grab offset respected. Release velocity decides commit or reverse (sign, not position). Grabbing it mid-animation takes over from the live transform with no jump.</td></tr>
+<tr><td>Inspector (narrow, bottom sheet)</td><td>Drag anywhere on the header</td><td>Three detents: peek (identity only), half (identity and explainer), full. Momentum projection picks the detent nearest the projected rest point; rubber-banding above full and below peek.</td></tr>
+<tr><td>Tape scrubber</td><td>Drag the counter or the scope's time axis</td><td>1:1 with the pointer; on release, decelerates with the projection function and snaps to the nearest sample. Scope and table update continuously during the drag, never only at the end.</td></tr>
+<tr><td>Table rows</td><td>Swipe left (touch) reveals suspend and kill</td><td>Reveal tracks the finger; a fast flick past 40% commits open. Hysteresis of 10 px before the row commits to horizontal instead of scroll.</td></tr>
+<tr><td>Workbench tabs</td><td>Tap, or horizontal swipe on touch</td><td>Content pans with the finger between tabs; the indicator follows on a spring that re-targets from its current position if the user changes mind mid-swipe.</td></tr>
+<tr><td>Retro switch</td><td>Tap or drag the knob</td><td>Knob tracks the pointer; the theme attribute flips at the midpoint so the change lands on the same frame as the knob crossing it.</td></tr>
+</table>
+<p>Implementation rules: Pointer Events with <code>setPointerCapture</code>; keep the last four positions with timestamps for release velocity; decompose the sheet's drag into independent X and Y springs; never lock input during a transition; animate <code>transform</code> and <code>opacity</code> only, with <code>will-change</code> set on pointer-down and cleared on settle.</p>
+
+<h3>9.3 Springs: the values we ship</h3>
+<table>
+<tr><th>Interaction</th><th>Damping</th><th>Response</th><th>Note</th></tr>
+<tr><td>Inspector open and close (pointer, keyboard, palette)</td><td>1.0</td><td>0.30</td><td>No overshoot: nothing was thrown</td></tr>
+<tr><td>Inspector released after a drag or flick</td><td>0.80</td><td>0.30</td><td>Overshoot is earned by the gesture's momentum</td></tr>
+<tr><td>Bottom sheet detent change</td><td>0.80</td><td>0.30</td><td>Apple's sheet values</td></tr>
+<tr><td>Tab indicator, filter chips, lamp state change</td><td>1.0</td><td>0.25</td><td>Fast, calm</td></tr>
+<tr><td>Row reveal (suspend and kill)</td><td>1.0</td><td>0.25</td><td>Critically damped so the buttons land exactly</td></tr>
+<tr><td>LED meter segments, seven-segment digits</td><td>none</td><td>none</td><td>Instruments step; they do not ease. A meter that glides is lying about the sample</td></tr>
+<tr><td>Vector scope traces</td><td>none</td><td>none</td><td>Drawn per sample with afterglow; time is the animation</td></tr>
+<tr><td>Command palette</td><td>1.0</td><td>0.20</td><td>Materialises: blur radius and scale animate together from the trigger's origin</td></tr>
+</table>
+<pre>import { animate } from "motion";
+
+// Inspector opened by click or keyboard: critically damped
+animate(drawer, { x: 0 }, { type: "spring", bounce: 0, duration: 0.3 });
+
+// Inspector released after a flick: hand off the pointer's velocity, allow a little overshoot
+animate(drawer, { x: target },
+  { type: "spring", bounce: 0.2, duration: 0.3, velocity: releaseVelocityPx });
+
+// Where the flick will land, Apple's projection (deceleration 0.998 for scroll feel)
+const project = (v, d = 0.998) => (v / 1000) * d / (1 - d);
+const detent = nearestDetent(currentY + project(releaseVelocityPx));
+
+// Rubber-band beyond the top detent
+const band = (over, dim, k = 0.55) => (over * dim * k) / (dim + k * Math.abs(over));</pre>
+
+<h3>9.4 Spatial consistency</h3>
+<ul>
+<li>The inspector enters from the right and leaves to the right; the sheet enters from the bottom and leaves to the bottom. Never in from one edge and out another.</li>
+<li>Popovers and the command palette set <code>transform-origin</code> to the control that opened them; the lamp explainer grows out of its lamp.</li>
+<li>Reversible transitions mirror their easing: the tab pan uses inverse cubic-bézier control points in each direction.</li>
+<li>Where am I, where can I go, what is here, how do I get out: the workbench tabs answer the first two, the inspector header answers the third, and Escape or a swipe answers the fourth from every state. No view traps focus without a visible exit.</li>
+</ul>
+
+<h3>9.5 Materials and depth</h3>
+<ul>
+<li>Two materials only. <em>Bezel</em>: opaque, matte, for the vitals rail and table chrome. <em>Glass</em>: <code>backdrop-filter: blur(20px) saturate(160%)</code> over 72% tube colour, for the inspector, the command palette and the sticky header, with a 1 px lighter top edge so the material reads as catching light.</li>
+<li>Glass never stacks on glass: the palette opening over the inspector dims the inspector to bezel first.</li>
+<li>The inspector is a parallel panel, not a modal: no scrim, content stays live underneath, the table keeps updating. Kill confirmation is the one modal task and pairs a scrim with a slight push-back of the page.</li>
+<li>Vibrancy: text over glass uses ivory at full opacity and weight 500 with +0.01em tracking; colour lives on the solid bezel, never on the glass foreground.</li>
+<li>Scroll edges: the table's sticky header has no hard rule; a 12 px gradient mask fades content into the glass where they overlap.</li>
+</ul>
+
+<h3>9.6 Accessibility signals, baked into components</h3>
+<table>
+<tr><th>Signal</th><th>What changes</th></tr>
+<tr><td><code>prefers-reduced-motion: reduce</code></td><td>Every spring becomes a 150 ms cross-fade; scope afterglow becomes a plain line; the sync-loss bar becomes a static amber tick on the axis; radar sweep and split-flap are disabled. Detents still work by tap.</td></tr>
+<tr><td><code>prefers-reduced-transparency: reduce</code></td><td>Glass becomes opaque bezel; blur removed.</td></tr>
+<tr><td><code>prefers-contrast: more</code></td><td>Bezels gain a 1 px ivory border; muted text lifts to 7:1; lamps add a glyph (check, exclamation, cross) beside the label.</td></tr>
+<tr><td>Text size</td><td>All spacing in rem; the rail and inspector widths in ch and rem so a 200% text setting reflows rather than clips.</td></tr>
+<tr><td>Theme change</td><td>Dark to light eases over 300 ms to avoid the brightness jump.</td></tr>
+</table>
+
+<h3>9.7 Typography discipline</h3>
+<ul>
+<li>Tracking is size-specific: the four vital numerals at 40 px use -0.02em, panel titles at 15 px use 0, table data at 12 px uses +0.01em, captions at 11 px use +0.015em. One fixed value would be wrong somewhere.</li>
+<li>Leading tracks size inversely: 1.05 on numerals, 1.3 on table rows, 1.5 on explainer prose.</li>
+<li>Hierarchy from weight plus size plus leading as a set; emphasis by weight (500 against 400), never by colour alone.</li>
+<li>Geist stays the body face because it ships tabular figures and optical tuning; Chakra Petch and DSEG7 appear only where section 2 allows, and DSEG7 is never below 28 px.</li>
+</ul>
+
+<h3>9.8 Feedback and sound</h3>
+<ul>
+<li>Four kinds, each with one treatment: <em>status</em> (lamps, meters), <em>completion</em> ("Suspended fileproviderd" in the live region and on the row, same words as the button), <em>warning</em> (amber caption before the threshold is crossed, for example "swap rising"), <em>error</em> (inline on the control that failed, with the reason and the fix).</li>
+<li>The optional tick fires on the same frame as the Timeline row appears; if audio cannot be scheduled on that frame, it is dropped rather than late.</li>
+<li>Confirmation only for kill and cleanup, which are destructive and irreversible. Suspend, watch, renice and reveal act immediately and offer undo in the live region for 8 s.</li>
+</ul>
+
+<h3>9.9 The eight principles as decisions for this product</h3>
+<table>
+<tr><th>Principle</th><th>Decision</th></tr>
+<tr><td>Purpose</td><td>Parked ideas stay parked. The isometric city, skins and boot screen were cut because they spend attention without answering a question.</td></tr>
+<tr><td>Agency</td><td>Suspend before kill; undo on every non-destructive action; rules can be silenced per subject; the retro switch and light theme are the user's call.</td></tr>
+<tr><td>Responsibility</td><td>Nothing leaves the machine by default. The model explainer is opt-in per session and names exactly what it sends. Probes are read-only and argv-based. An unknown publisher is stated as unknown, not judged as malicious.</td></tr>
+<tr><td>Familiarity</td><td>Lamps, meters and scopes are metaphors people already read; kill and cleanup keep their names and positions from the current app; Escape closes, Cmd-K opens, as everywhere on the Mac.</td></tr>
+<tr><td>Flexibility</td><td>Desktop gets density and keyboard; touch gets the sheet and swipes; the mini window serves the glance case; columns can be hidden and reordered.</td></tr>
+<tr><td>Simplicity</td><td>The common path (glance at lamps and scope, find the hog, inspect, suspend) is one level deep. Network, Persistence and Permissions are a level down. Adding the explainer is the kind of context that simplifies.</td></tr>
+<tr><td>Craft</td><td>Every spring value, tracking value and colour role above is a defensible choice. Motion is reviewed frame by frame before phase B ships.</td></tr>
+<tr><td>Delight</td><td>The emotion is calm confidence: the machine is understood and under control. The instruments deliver it; nothing is added on top.</td></tr>
+</table>
+
+<h3>9.10 Process for phases A and B</h3>
+<ul>
+<li>Prototype the inspector drawer and sheet interactively before styling anything; an interactive demo sets the bar the final build must meet.</li>
+<li>Design the scope and its interactions together: the time axis is both the display and the scrubber, so neither is finished until both are.</li>
+<li>Review motion at quarter speed with fresh eyes; check every interruption path by grabbing mid-flight.</li>
+</ul>
+
+<h2>10. Open questions</h2>
 <ul>
 <li>Full Disk Access is needed for TCC and some log reads. The annunciator should show a "grant access" lamp rather than silently degrading.</li>
 <li>The knowledge base needs an owner and a contribution format; the man-page layer covers the long tail meanwhile.</li>
