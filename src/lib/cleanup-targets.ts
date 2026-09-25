@@ -227,10 +227,7 @@ export const CLEANUP_TARGETS: readonly CleanupTarget[] = [
     id: "mail-downloads",
     category: "Mail",
     name: "Mail Attachment Downloads",
-    absPath: path.join(
-      HOME,
-      "Library/Containers/com.apple.mail/Data/Library/Mail Downloads",
-    ),
+    absPath: path.join(HOME, "Library/Containers/com.apple.mail/Data/Library/Mail Downloads"),
     mode: "empty-dir",
     risk: "safe",
     requiresRoot: false,

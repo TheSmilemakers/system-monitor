@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  ContractError,
-  parseCleanup,
-  parsePrivacy,
-  parseScan,
-  parseStats,
-} from "@/lib/schemas";
+import { ContractError, parseCleanup, parsePrivacy, parseScan, parseStats } from "@/lib/schemas";
 
 const validStats = {
   complete: true,
@@ -46,8 +40,12 @@ describe("M-11 — stats contract", () => {
    * as null, and the dashboard called .toFixed() on it.
    */
   test("rejects null where a finite number is required", () => {
-    expect(() => parseStats({ ...validStats, cpu: { ...validStats.cpu, used: null } })).toThrow(ContractError);
-    expect(() => parseStats({ ...validStats, memory: { ...validStats.memory, percent: null } })).toThrow(ContractError);
+    expect(() => parseStats({ ...validStats, cpu: { ...validStats.cpu, used: null } })).toThrow(
+      ContractError,
+    );
+    expect(() =>
+      parseStats({ ...validStats, memory: { ...validStats.memory, percent: null } }),
+    ).toThrow(ContractError);
   });
 
   test("rejects a short or non-numeric load array", () => {
@@ -79,20 +77,50 @@ describe("M-11 — stats contract", () => {
 
 describe("M-11 / H-03 — scores are nullable in the contract", () => {
   test("a null health score survives parsing as null, not 0", () => {
-    const parsed = parseScan({ complete: false, healthScore: null, unavailable: [], findings: [], summary: null, timestamp: 1 });
+    const parsed = parseScan({
+      complete: false,
+      healthScore: null,
+      unavailable: [],
+      findings: [],
+      summary: null,
+      timestamp: 1,
+    });
     expect(parsed.healthScore).toBeNull();
     expect(parsed.complete).toBe(false);
   });
 
   test("a null privacy score survives parsing as null", () => {
-    const parsed = parsePrivacy({ complete: false, privacyScore: null, unavailable: [], findings: [], connectionCount: 0, resolvedCount: 0, unknownCount: 0, trackerCount: 0, timestamp: 1 });
+    const parsed = parsePrivacy({
+      complete: false,
+      privacyScore: null,
+      unavailable: [],
+      findings: [],
+      connectionCount: 0,
+      resolvedCount: 0,
+      unknownCount: 0,
+      trackerCount: 0,
+      timestamp: 1,
+    });
     expect(parsed.privacyScore).toBeNull();
   });
 
   test("unknown severities degrade to info rather than throwing", () => {
     const parsed = parseScan({
-      complete: true, healthScore: 90, unavailable: [], summary: null, timestamp: 1,
-      findings: [{ severity: "apocalyptic", category: "X", title: "T", detail: "", processes: [], recommendation: "" }],
+      complete: true,
+      healthScore: 90,
+      unavailable: [],
+      summary: null,
+      timestamp: 1,
+      findings: [
+        {
+          severity: "apocalyptic",
+          category: "X",
+          title: "T",
+          detail: "",
+          processes: [],
+          recommendation: "",
+        },
+      ],
     });
     expect(parsed.findings[0].severity).toBe("info");
   });
@@ -101,12 +129,25 @@ describe("M-11 / H-03 — scores are nullable in the contract", () => {
 describe("M-11 — cleanup contract carries ids, never commands", () => {
   test("parses items and preserves requiresRoot", () => {
     const parsed = parseCleanup({
-      complete: true, unavailable: [], totalSize: 100, totalFormatted: "100 B", timestamp: 1,
-      items: [{
-        id: "user-caches", category: "Caches", name: "App Caches", path: "/x",
-        size: 100, sizeFormatted: "100 B", fileCount: 5, description: "d",
-        risk: "low", requiresRoot: true,
-      }],
+      complete: true,
+      unavailable: [],
+      totalSize: 100,
+      totalFormatted: "100 B",
+      timestamp: 1,
+      items: [
+        {
+          id: "user-caches",
+          category: "Caches",
+          name: "App Caches",
+          path: "/x",
+          size: 100,
+          sizeFormatted: "100 B",
+          fileCount: 5,
+          description: "d",
+          risk: "low",
+          requiresRoot: true,
+        },
+      ],
     });
     expect(parsed.items[0].id).toBe("user-caches");
     expect(parsed.items[0].requiresRoot).toBe(true);
@@ -114,7 +155,11 @@ describe("M-11 — cleanup contract carries ids, never commands", () => {
 
   test("a null file count is preserved rather than coerced to 0", () => {
     const parsed = parseCleanup({
-      complete: false, unavailable: [], totalSize: 0, totalFormatted: "0 B", timestamp: 1,
+      complete: false,
+      unavailable: [],
+      totalSize: 0,
+      totalFormatted: "0 B",
+      timestamp: 1,
       items: [{ id: "a", name: "A", path: "/x", size: 1, fileCount: null }],
     });
     expect(parsed.items[0].fileCount).toBeNull();
@@ -127,7 +172,10 @@ describe("M-11 — cleanup contract carries ids, never commands", () => {
   });
 
   test("an unrecognised risk degrades to the most cautious value", () => {
-    const parsed = parseCleanup({ items: [{ id: "a", size: 1, risk: "totally-safe" }], timestamp: 1 });
+    const parsed = parseCleanup({
+      items: [{ id: "a", size: 1, risk: "totally-safe" }],
+      timestamp: 1,
+    });
     expect(parsed.items[0].risk).toBe("medium");
   });
 });

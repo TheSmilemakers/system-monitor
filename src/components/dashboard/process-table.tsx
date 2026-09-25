@@ -29,19 +29,32 @@ export function ProcessTable({ processes, alerts, killingPid, onKill }: ProcessT
       <Table>
         {/* L-04: the table announces its own purpose. */}
         <TableCaption className="sr-only">
-          Running processes ordered by CPU usage. Each row offers a button to terminate that process.
+          Running processes ordered by CPU usage. Each row offers a button to terminate that
+          process.
         </TableCaption>
         <TableHeader>
           <TableRow className="border-border hover:bg-transparent">
-            <TableHead scope="col" className="w-16 font-mono text-xs">PID</TableHead>
-            <TableHead scope="col" className="font-mono text-xs">Process</TableHead>
-            <TableHead scope="col" className="w-16 font-mono text-xs">User</TableHead>
+            <TableHead scope="col" className="w-16 font-mono text-xs">
+              PID
+            </TableHead>
+            <TableHead scope="col" className="font-mono text-xs">
+              Process
+            </TableHead>
+            <TableHead scope="col" className="w-16 font-mono text-xs">
+              User
+            </TableHead>
             <TableHead scope="col" className="w-24 text-right font-mono text-xs">
               CPU<span className="sr-only"> percent of one core</span>
             </TableHead>
-            <TableHead scope="col" className="w-20 text-right font-mono text-xs">MEM %</TableHead>
-            <TableHead scope="col" className="w-20 text-right font-mono text-xs">RSS</TableHead>
-            <TableHead scope="col" className="w-20 text-right font-mono text-xs">Action</TableHead>
+            <TableHead scope="col" className="w-20 text-right font-mono text-xs">
+              MEM %
+            </TableHead>
+            <TableHead scope="col" className="w-20 text-right font-mono text-xs">
+              RSS
+            </TableHead>
+            <TableHead scope="col" className="w-20 text-right font-mono text-xs">
+              Action
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -58,7 +71,10 @@ export function ProcessTable({ processes, alerts, killingPid, onKill }: ProcessT
                 <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
                   {proc.pid}
                 </TableCell>
-                <TableCell className="max-w-[300px] truncate font-mono text-xs" title={proc.command}>
+                <TableCell
+                  className="max-w-[300px] truncate font-mono text-xs"
+                  title={proc.command}
+                >
                   {isAlerted && (
                     <span
                       aria-hidden="true"
@@ -68,7 +84,9 @@ export function ProcessTable({ processes, alerts, killingPid, onKill }: ProcessT
                   {proc.command}
                   {isAlerted && <span className="sr-only"> (flagged: sustained high CPU)</span>}
                 </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">{proc.user}</TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">
+                  {proc.user}
+                </TableCell>
                 <TableCell
                   className={`text-right font-mono text-xs tabular-nums ${hot ? "font-bold text-red-400" : warm ? "text-amber-400" : ""}`}
                 >
@@ -94,7 +112,9 @@ export function ProcessTable({ processes, alerts, killingPid, onKill }: ProcessT
                     size="sm"
                     aria-label={`Terminate ${proc.command}, PID ${proc.pid}`}
                     className={`h-6 min-h-6 px-2 font-mono text-xs text-red-400 transition-opacity hover:bg-red-500/10 hover:text-red-300 focus-visible:opacity-100 group-focus-within:opacity-100 ${
-                      isAlerted ? "opacity-100" : "opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100"
+                      isAlerted
+                        ? "opacity-100"
+                        : "opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100"
                     }`}
                     onClick={() => onKill(proc.pid, proc.command)}
                     disabled={busy}

@@ -9,9 +9,7 @@ import dns from "node:dns/promises";
  * address that will not resolve is reported as `unknown`, never as clean.
  */
 
-export type Resolution =
-  | { status: "resolved"; hostnames: string[] }
-  | { status: "unknown" };
+export type Resolution = { status: "resolved"; hostnames: string[] } | { status: "unknown" };
 
 interface Entry {
   value: Resolution;

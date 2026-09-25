@@ -23,7 +23,7 @@ const HISTORICAL_INJECTION_PAYLOADS = [
   'rm -rf "`id`/Library/Caches"/*',
   'rm -rf "/Users/rajan/Library/Caches/../../../../Library/Caches"/*',
   'rm -rf "/Users/rajan/Library/Caches"/*',
-  "find \"/Users/rajan/Downloads\" -maxdepth 1 -type f -mtime +30 -delete",
+  'find "/Users/rajan/Downloads" -maxdepth 1 -type f -mtime +30 -delete',
   'sudo rm -rf "/private/var/log"/*.log',
 ];
 

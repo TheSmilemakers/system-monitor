@@ -218,8 +218,7 @@ const PHASES = {
         check: () => {
           const v = (pkg().dependencies?.next ?? "").replace(/^[\^~]/, "");
           const [maj, min, pat] = v.split(".").map(Number);
-          const ok =
-            maj > 16 || (maj === 16 && (min > 2 || (min === 2 && pat >= 5)));
+          const ok = maj > 16 || (maj === 16 && (min > 2 || (min === 2 && pat >= 5)));
           return { pass: ok, detail: `next@${v || "missing"}` };
         },
       },
@@ -252,7 +251,9 @@ const PHASES = {
           const ok = !acceptsCommand && !execsInput;
           return {
             pass: ok,
-            detail: ok ? "no command parameter, no command exec" : `accepts-command:${acceptsCommand} execs-command:${execsInput}`,
+            detail: ok
+              ? "no command parameter, no command exec"
+              : `accepts-command:${acceptsCommand} execs-command:${execsInput}`,
           };
         },
       },
@@ -267,24 +268,33 @@ const PHASES = {
       {
         id: "P0-8",
         name: "typecheck passes",
-        check: () => ({ pass: typecheck().ok, detail: typecheck().ok ? "clean" : typecheck().out.slice(-400) }),
+        check: () => ({
+          pass: typecheck().ok,
+          detail: typecheck().ok ? "clean" : typecheck().out.slice(-400),
+        }),
       },
       {
         id: "P0-9",
         name: "lint passes with zero warnings",
-        check: () => ({ pass: lint().ok, detail: lint().ok ? "0 warnings" : lint().out.slice(-400) }),
+        check: () => ({
+          pass: lint().ok,
+          detail: lint().ok ? "0 warnings" : lint().out.slice(-400),
+        }),
       },
       {
         id: "P0-10",
         name: "zero high/critical advisories reachable from production deps",
         check: () => {
-          const bad = prodAdvisories().filter((a) => a.severity === "high" || a.severity === "critical");
+          const bad = prodAdvisories().filter(
+            (a) => a.severity === "high" || a.severity === "critical",
+          );
           const total = (audit().out.match(/(\d+)\s+vulnerabilit/) ?? [])[1] ?? "?";
           return {
             pass: bad.length === 0,
-            detail: bad.length === 0
-              ? `0 production-reachable (${total} total, all dev tooling)`
-              : bad.map((a) => `${a.pkg} via ${a.via} (${a.severity})`).join(", "),
+            detail:
+              bad.length === 0
+                ? `0 production-reachable (${total} total, all dev tooling)`
+                : bad.map((a) => `${a.pkg} via ${a.via} (${a.severity})`).join(", "),
           };
         },
       },
@@ -308,7 +318,10 @@ const PHASES = {
         name: "cleanup API response exposes no executable command",
         check: () => {
           const files = ["src/app/api/cleanup/route.ts", "src/lib/cleanup-targets.ts"];
-          const hits = grepSrc(/\bcommand\s*:/, files.filter((f) => read(f) != null));
+          const hits = grepSrc(
+            /\bcommand\s*:/,
+            files.filter((f) => read(f) != null),
+          );
           return { pass: hits.length === 0, detail: hits.join(", ") || "none" };
         },
       },
@@ -318,7 +331,8 @@ const PHASES = {
         check: () => {
           const t = read("src/lib/cleanup-targets.ts");
           if (!t) return { pass: false, detail: "src/lib/cleanup-targets.ts missing" };
-          const ok = /CLEANUP_TARGETS/.test(t) && /PERMITTED_ROOTS/.test(t) && /getCleanupTarget/.test(t);
+          const ok =
+            /CLEANUP_TARGETS/.test(t) && /PERMITTED_ROOTS/.test(t) && /getCleanupTarget/.test(t);
           return { pass: ok, detail: ok ? "table + roots + lookup" : "incomplete" };
         },
       },
@@ -344,7 +358,10 @@ const PHASES = {
         check: () => {
           const routes = srcFiles().filter((f) => /app\/api\/.*route\.ts$/.test(f));
           const missing = routes.filter((f) => !/assertLocalRequest\(/.test(read(f) ?? ""));
-          return { pass: missing.length === 0 && routes.length > 0, detail: missing.join(", ") || `${routes.length} routes guarded` };
+          return {
+            pass: missing.length === 0 && routes.length > 0,
+            detail: missing.join(", ") || `${routes.length} routes guarded`,
+          };
         },
       },
       {
@@ -357,7 +374,10 @@ const PHASES = {
           const missing = bodies
             .filter((b) => !/assertLocalRequest\(/.test(b))
             .map((b) => b.split("(")[0]);
-          return { pass: missing.length === 0 && actions.length > 0, detail: missing.join(", ") || `${actions.length} actions guarded` };
+          return {
+            pass: missing.length === 0 && actions.length > 0,
+            detail: missing.join(", ") || `${actions.length} actions guarded`,
+          };
         },
       },
       {
@@ -422,7 +442,10 @@ const PHASES = {
         name: "no synchronous child_process use in src",
         check: () => {
           const hits = grepCode(/\b(execSync|execFileSync|spawnSync)\s*\(/);
-          return { pass: hits.length === 0, detail: hits.join(", ") || "none (comment references ignored)" };
+          return {
+            pass: hits.length === 0,
+            detail: hits.join(", ") || "none (comment references ignored)",
+          };
         },
       },
       {
@@ -459,7 +482,10 @@ const PHASES = {
             const t = read(f) ?? "";
             return !(/complete/.test(t) && /unavailable/.test(t));
           });
-          return { pass: missing.length === 0, detail: missing.join(", ") || "both report completeness" };
+          return {
+            pass: missing.length === 0,
+            detail: missing.join(", ") || "both report completeness",
+          };
         },
       },
       {
@@ -467,7 +493,10 @@ const PHASES = {
         name: "stats returns 503 when core collection fails",
         check: () => {
           const t = read("src/app/api/stats/route.ts") ?? "";
-          return { pass: /503/.test(t), detail: /503/.test(t) ? "503 path present" : "no 503 path" };
+          return {
+            pass: /503/.test(t),
+            detail: /503/.test(t) ? "503 path present" : "no 503 path",
+          };
         },
       },
       {
@@ -506,7 +535,16 @@ const PHASES = {
         check: () => {
           const src = read("src/app/api/scan/route.ts") ?? "";
           const electron = objectBody(src, "ELECTRON_APPS");
-          const browsers = ["Google Chrome", "Brave", "Firefox", "Safari", "Arc", "Vivaldi", "Opera", "Microsoft Edge"];
+          const browsers = [
+            "Google Chrome",
+            "Brave",
+            "Firefox",
+            "Safari",
+            "Arc",
+            "Vivaldi",
+            "Opera",
+            "Microsoft Edge",
+          ];
           const leaked = browsers.filter((b) => electron.includes(b));
           const separateList = /CHROMIUM_BROWSERS/.test(src);
           // Processes claimed as browsers must be excluded from the Electron pass.
@@ -530,7 +568,9 @@ const PHASES = {
           const ok = tests().ok && typecheck().ok && lint().ok && build().ok;
           return {
             pass: ok,
-            detail: ok ? "tests + tsc + eslint + build" : `test:${tests().ok} tsc:${typecheck().ok} lint:${lint().ok} build:${build().ok}`,
+            detail: ok
+              ? "tests + tsc + eslint + build"
+              : `test:${tests().ok} tsc:${typecheck().ok} lint:${lint().ok} build:${build().ok}`,
           };
         },
       },
@@ -576,7 +616,11 @@ const PHASES = {
               checked++;
               // A className may span several lines; inspect the enclosing element.
               const win = lines.slice(Math.max(0, i - 10), i + 11).join(" ");
-              if (!/focus-visible:opacity-100|focus-within:opacity-100|group-focus-within:opacity-100/.test(win)) {
+              if (
+                !/focus-visible:opacity-100|focus-within:opacity-100|group-focus-within:opacity-100/.test(
+                  win,
+                )
+              ) {
                 bad.push(`${f}:${i + 1}`);
               }
             });
@@ -591,9 +635,15 @@ const PHASES = {
         id: "P3-3",
         name: "destructive controls carry a process-identifying accessible name",
         check: () => {
-          const t = read("src/components/dashboard/process-table.tsx") ?? read("src/app/page.tsx") ?? "";
-          const ok = /aria-label=\{`?Kill|aria-label=\{`Terminate/.test(t) || /aria-label=\{`[^`]*PID/.test(t);
-          return { pass: ok, detail: ok ? "aria-label includes process + PID" : "generic names only" };
+          const t =
+            read("src/components/dashboard/process-table.tsx") ?? read("src/app/page.tsx") ?? "";
+          const ok =
+            /aria-label=\{`?Kill|aria-label=\{`Terminate/.test(t) ||
+            /aria-label=\{`[^`]*PID/.test(t);
+          return {
+            pass: ok,
+            detail: ok ? "aria-label includes process + PID" : "generic names only",
+          };
         },
       },
       {
@@ -627,14 +677,19 @@ const PHASES = {
           const abort = /AbortController/.test(joined);
           const overlap = /inFlight|inflight|isFetching/.test(joined);
           const visibility = /visibilitychange|document\.hidden/.test(joined);
-          return { pass: abort && overlap && visibility, detail: `abort:${abort} overlap:${overlap} visibility:${visibility}` };
+          return {
+            pass: abort && overlap && visibility,
+            detail: `abort:${abort} overlap:${overlap} visibility:${visibility}`,
+          };
         },
       },
       {
         id: "P3-7",
         name: "charts reflow (no fixed pixel width in an overflow-hidden card)",
         check: () => {
-          const joined = srcFiles(/\.tsx$/).map((f) => read(f) ?? "").join("\n");
+          const joined = srcFiles(/\.tsx$/)
+            .map((f) => read(f) ?? "")
+            .join("\n");
           const responsive = /viewBox=/.test(joined);
           const fixed = /width=\{?280\}?/.test(joined);
           return { pass: responsive && !fixed, detail: `viewBox:${responsive} fixed-280:${fixed}` };
@@ -644,7 +699,9 @@ const PHASES = {
         id: "P3-8",
         name: "severity conveyed as text, not colour alone",
         check: () => {
-          const joined = srcFiles(/\.tsx$/).map((f) => read(f) ?? "").join("\n");
+          const joined = srcFiles(/\.tsx$/)
+            .map((f) => read(f) ?? "")
+            .join("\n");
           const ok = /sr-only/.test(joined) || /severityLabel|SEVERITY_LABEL/.test(joined);
           return { pass: ok, detail: ok ? "textual severity present" : "colour/shape only" };
         },
@@ -654,10 +711,15 @@ const PHASES = {
         name: "reduced motion respected; real headings used",
         check: () => {
           const css = read("src/app/globals.css") ?? "";
-          const joined = srcFiles(/\.tsx$/).map((f) => read(f) ?? "").join("\n");
+          const joined = srcFiles(/\.tsx$/)
+            .map((f) => read(f) ?? "")
+            .join("\n");
           const motion = /prefers-reduced-motion/.test(css) || /motion-reduce:/.test(joined);
           const headings = /<h2|<h3/.test(joined);
-          return { pass: motion && headings, detail: `reduced-motion:${motion} headings:${headings}` };
+          return {
+            pass: motion && headings,
+            detail: `reduced-motion:${motion} headings:${headings}`,
+          };
         },
       },
       {
@@ -668,7 +730,12 @@ const PHASES = {
           if (!t) return { pass: false, detail: "src/lib/schemas.ts missing" };
           const used = grepSrc(/parseStats|parseScan|parseCleanup|parsePrivacy/).length > 0;
           const ok = used && tests().ok && typecheck().ok && lint().ok && build().ok;
-          return { pass: ok, detail: ok ? "validated + toolchain clean" : `used:${used} test:${tests().ok} tsc:${typecheck().ok} lint:${lint().ok} build:${build().ok}` };
+          return {
+            pass: ok,
+            detail: ok
+              ? "validated + toolchain clean"
+              : `used:${used} test:${tests().ok} tsc:${typecheck().ok} lint:${lint().ok} build:${build().ok}`,
+          };
         },
       },
     ],
@@ -683,7 +750,10 @@ const PHASES = {
         check: () => {
           const files = walk("tests").filter((f) => /\.test\.ts$/.test(f));
           if (files.length === 0) return { pass: false, detail: "no tests" };
-          return { pass: tests().ok, detail: tests().ok ? `${files.length} test files pass` : tests().out.slice(-400) };
+          return {
+            pass: tests().ok,
+            detail: tests().ok ? `${files.length} test files pass` : tests().out.slice(-400),
+          };
         },
       },
       {
@@ -691,10 +761,17 @@ const PHASES = {
         name: "coverage spans every required layer",
         check: () => {
           const required = [
-            "cleanup-boundary", "process-actions", "parsers",
-            "scoring", "probe", "schemas",
+            "cleanup-boundary",
+            "process-actions",
+            "parsers",
+            "scoring",
+            "probe",
+            "schemas",
             // Production entry points invoked as functions, not mirrored logic.
-            "routes", "actions", "sampler", "libs",
+            "routes",
+            "actions",
+            "sampler",
+            "libs",
           ];
           const have = walk("tests").map((f) => path.basename(f));
           const missing = required.filter((r) => !have.some((h) => h.includes(r)));
@@ -722,14 +799,27 @@ const PHASES = {
           const expand = (cmd, depth = 0) =>
             depth > 4
               ? cmd
-              : cmd.replace(/bun run (\S+)/g, (m, name) => (s[name] ? `${m} { ${expand(s[name], depth + 1)} }` : m));
+              : cmd.replace(/bun run (\S+)/g, (m, name) =>
+                  s[name] ? `${m} { ${expand(s[name], depth + 1)} }` : m,
+                );
           const wired = t.includes("bun run check") ? `${t}\n${expand("bun run check")}` : t;
-          const need = ["typecheck", "max-warnings=0", "bun test", "audit --prod", "next build", "smoke", "qa"];
+          const need = [
+            "typecheck",
+            "max-warnings=0",
+            "bun test",
+            "audit --prod",
+            "next build",
+            "smoke",
+            "qa",
+          ];
           const missing = need.filter((n) => !wired.includes(n));
           // The gating audit must be able to fail: no `|| true` anywhere in the check chain.
           const softened = /\|\|\s*true/.test(expand("bun run check"));
           if (softened) missing.push("audit is softened with || true");
-          return { pass: missing.length === 0, detail: missing.join(", ") || "all gates wired via bun run check" };
+          return {
+            pass: missing.length === 0,
+            detail: missing.join(", ") || "all gates wired via bun run check",
+          };
         },
       },
       {
@@ -768,8 +858,10 @@ const PHASES = {
           const t = read("README.md") ?? "";
           const stale = [];
           if (/Node\.js 18\+/.test(t)) stale.push("Node 18+");
-          if (/bun run dev`?\s*$/m.test(t) && !/127\.0\.0\.1/.test(t)) stale.push("no loopback note");
-          if (/only pre-approved cleanup patterns can execute/i.test(t)) stale.push("allowlist claim");
+          if (/bun run dev`?\s*$/m.test(t) && !/127\.0\.0\.1/.test(t))
+            stale.push("no loopback note");
+          if (/only pre-approved cleanup patterns can execute/i.test(t))
+            stale.push("allowlist claim");
           if (/SIGKILL escalation/.test(t) && !/grace/i.test(t)) stale.push("escalation claim");
           return { pass: stale.length === 0, detail: stale.join(", ") || "accurate" };
         },
@@ -778,10 +870,15 @@ const PHASES = {
         id: "P4-9",
         name: "zero high/critical advisories reachable from production deps",
         check: () => {
-          const bad = prodAdvisories().filter((a) => a.severity === "high" || a.severity === "critical");
+          const bad = prodAdvisories().filter(
+            (a) => a.severity === "high" || a.severity === "critical",
+          );
           return {
             pass: bad.length === 0,
-            detail: bad.length === 0 ? "0 production-reachable" : bad.map((a) => `${a.pkg} (${a.severity})`).join(", "),
+            detail:
+              bad.length === 0
+                ? "0 production-reachable"
+                : bad.map((a) => `${a.pkg} (${a.severity})`).join(", "),
           };
         },
       },
@@ -793,7 +890,10 @@ const PHASES = {
           // next build all passed green while every page load returned 500.
           const ok = typecheck().ok && lint().ok && tests().ok && build().ok && smoke().ok;
           if (ok) return { pass: true, detail: "tsc + eslint + tests + build + smoke 13/13" };
-          const smokeLine = smoke().out.split("\n").find((l) => /SMOKE|FAIL/.test(l)) ?? "";
+          const smokeLine =
+            smoke()
+              .out.split("\n")
+              .find((l) => /SMOKE|FAIL/.test(l)) ?? "";
           return {
             pass: false,
             detail: `tsc:${typecheck().ok} lint:${lint().ok} test:${tests().ok} build:${build().ok} smoke:${smoke().ok} ${smokeLine.replace(/\x1b\[[0-9;]*m/g, "")}`,

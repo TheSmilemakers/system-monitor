@@ -58,7 +58,9 @@ describe("ps aux parsing", () => {
   });
 
   test("tolerates leading whitespace on a row", () => {
-    const rows = parsePsAux([PS_HEADER, "  rajan  777  1.0  0.5  100  200  ??  S  9:00AM  0:01.00 /bin/thing"].join("\n"));
+    const rows = parsePsAux(
+      [PS_HEADER, "  rajan  777  1.0  0.5  100  200  ??  S  9:00AM  0:01.00 /bin/thing"].join("\n"),
+    );
     expect(rows[0]?.pid).toBe(777);
   });
 });
@@ -90,8 +92,9 @@ describe("H-04 — lsof remote address extraction", () => {
   });
 
   test("extracts a bracketed IPv6 remote address", () => {
-    expect(remoteAddressOf("[::1]:1234->[2606:2800:220:1:248:1893:25c8:1946]:443"))
-      .toBe("2606:2800:220:1:248:1893:25c8:1946");
+    expect(remoteAddressOf("[::1]:1234->[2606:2800:220:1:248:1893:25c8:1946]:443")).toBe(
+      "2606:2800:220:1:248:1893:25c8:1946",
+    );
   });
 
   test("returns null for a listening socket with no peer", () => {

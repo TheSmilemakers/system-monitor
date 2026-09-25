@@ -40,7 +40,9 @@ function fail(message, hint) {
 if (process.platform === "darwin") {
   let appleSilicon = false;
   try {
-    appleSilicon = execFileSync("/usr/sbin/sysctl", ["-n", "hw.optional.arm64"], { encoding: "utf8" }).trim() === "1";
+    appleSilicon =
+      execFileSync("/usr/sbin/sysctl", ["-n", "hw.optional.arm64"], { encoding: "utf8" }).trim() ===
+      "1";
   } catch {
     /* key absent on Intel Macs; not a preflight failure */
   }
@@ -66,7 +68,9 @@ if (process.platform === "darwin") {
   if (process.env.PREFLIGHT_DEBUG === "1") {
     let translated = "?";
     try {
-      translated = execFileSync("/usr/sbin/sysctl", ["-n", "sysctl.proc_translated"], { encoding: "utf8" }).trim();
+      translated = execFileSync("/usr/sbin/sysctl", ["-n", "sysctl.proc_translated"], {
+        encoding: "utf8",
+      }).trim();
     } catch {
       /* diagnostics only */
     }
@@ -79,7 +83,7 @@ if (process.platform === "darwin") {
     fail(
       `Node is running as ${runningArch} on an arm64 Mac (Rosetta).`,
       "Start it natively: prefix the command with `arch -arm64`, or untick " +
-        "\"Open using Rosetta\" on the launcher app. If the dev server already ran once under " +
+        '"Open using Rosetta" on the launcher app. If the dev server already ran once under ' +
         "Rosetta, also delete .next/dev: Turbopack caches the failed x64 CSS transform. " +
         "See README.md, Troubleshooting.",
     );

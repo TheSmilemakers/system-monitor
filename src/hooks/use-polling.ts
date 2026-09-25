@@ -79,7 +79,13 @@ export function usePolling<T>({ url, intervalMs, parse, enabled = true }: UsePol
 
       // Discard superseded responses.
       if (!mounted.current || gen !== generation.current) return;
-      setState({ phase: "success", data: parsed, error: null, stale: false, lastUpdated: Date.now() });
+      setState({
+        phase: "success",
+        data: parsed,
+        error: null,
+        stale: false,
+        lastUpdated: Date.now(),
+      });
     } catch (e) {
       if (ac.signal.aborted) return;
       if (!mounted.current || gen !== generation.current) return;
@@ -173,7 +179,13 @@ export function useOnDemand<T>(url: string, parse: (raw: unknown) => T) {
         throw new Error(message);
       }
       const parsed = parseRef.current(await res.json());
-      setState({ phase: "success", data: parsed, error: null, stale: false, lastUpdated: Date.now() });
+      setState({
+        phase: "success",
+        data: parsed,
+        error: null,
+        stale: false,
+        lastUpdated: Date.now(),
+      });
     } catch (e) {
       if (ac.signal.aborted) return;
       setState((s) => ({

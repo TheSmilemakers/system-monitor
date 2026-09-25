@@ -92,7 +92,16 @@ describe("resolve-host", () => {
   });
 
   test("private and loopback addresses are attributed locally without DNS", async () => {
-    for (const ip of ["10.1.2.3", "192.168.0.1", "172.16.5.5", "172.31.0.1", "127.0.0.1", "::1", "fe80::1", "169.254.1.1"]) {
+    for (const ip of [
+      "10.1.2.3",
+      "192.168.0.1",
+      "172.16.5.5",
+      "172.31.0.1",
+      "127.0.0.1",
+      "::1",
+      "fe80::1",
+      "169.254.1.1",
+    ]) {
       expect(await resolveHost(ip)).toEqual({ status: "resolved", hostnames: ["<local network>"] });
     }
   });

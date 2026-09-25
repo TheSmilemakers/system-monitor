@@ -101,11 +101,6 @@ async function realProbe(
   }
 }
 
-/** Convenience: the value when ok, otherwise null. Use only where absence is meaningful. */
-export function valueOr<T>(p: Probe<T>, fallback: T): T {
-  return p.status === "ok" ? p.value : fallback;
-}
-
 export function isOk<T>(p: Probe<T>): p is { status: "ok"; value: T } {
   return p.status === "ok";
 }
@@ -113,7 +108,9 @@ export function isOk<T>(p: Probe<T>): p is { status: "ok"; value: T } {
 /** True when a value is present, whether complete or a flagged lower bound. */
 export function hasValue<T>(
   p: Probe<T>,
-): p is { status: "ok"; value: T } | { status: "partial"; value: T; reason: "timeout" | "denied" | "failed" } {
+): p is
+  | { status: "ok"; value: T }
+  | { status: "partial"; value: T; reason: "timeout" | "denied" | "failed" } {
   return p.status === "ok" || p.status === "partial";
 }
 

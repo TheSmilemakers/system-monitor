@@ -201,7 +201,13 @@ export async function sample(): Promise<StatsSample> {
       existing.cpu = p.cpu;
       existing.command = p.command;
     } else {
-      hot.set(p.pid, { pid: p.pid, command: p.command, cpu: p.cpu, firstSeen: now, startedAt: null });
+      hot.set(p.pid, {
+        pid: p.pid,
+        command: p.command,
+        cpu: p.cpu,
+        firstSeen: now,
+        startedAt: null,
+      });
     }
   }
   for (const pid of [...hot.keys()]) if (!seen.has(pid)) hot.delete(pid);
@@ -253,9 +259,14 @@ export async function sample(): Promise<StatsSample> {
       top: allProcs,
     },
     uptime: hasValue(upRes)
-      ? upRes.value.replace(/.*up\s+/, "").replace(/,\s*\d+ users?.*/, "").trim()
+      ? upRes.value
+          .replace(/.*up\s+/, "")
+          .replace(/,\s*\d+ users?.*/, "")
+          .trim()
       : "",
-    battery: battPct ? { percent: finiteInt(battPct[1], 0), charging: battRaw.includes("AC Power") } : null,
+    battery: battPct
+      ? { percent: finiteInt(battPct[1], 0), charging: battRaw.includes("AC Power") }
+      : null,
     history: [...history],
     alerts,
     timestamp: now,

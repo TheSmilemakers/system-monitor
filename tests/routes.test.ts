@@ -94,7 +94,10 @@ describe("GET /api/stats", () => {
     });
     const res = await getStats();
     expect(res.status).toBe(503);
-    const body = (await res.json()) as { error: string; unavailable: { check: string; reason: string }[] };
+    const body = (await res.json()) as {
+      error: string;
+      unavailable: { check: string; reason: string }[];
+    };
     expect(body.error).toContain("unavailable");
     expect(body.unavailable.map((u) => u.check)).toEqual(
       expect.arrayContaining(["cpu/load (top)", "memory (vm_stat)", "processes (ps)"]),
@@ -146,7 +149,9 @@ describe("GET /api/scan", () => {
     expect(scan.complete).toBe(false);
     expect(scan.healthScore).toBeNull();
     expect(scan.findings).toEqual([]);
-    expect(scan.unavailable).toEqual(expect.arrayContaining([{ check: "process list", reason: "timeout" }]));
+    expect(scan.unavailable).toEqual(
+      expect.arrayContaining([{ check: "process list", reason: "timeout" }]),
+    );
   });
 });
 
@@ -202,14 +207,18 @@ describe("GET /api/privacy", () => {
     // TCC unreadable: surfaced as unavailable and the score is withheld (H-03).
     expect(privacy.complete).toBe(false);
     expect(privacy.privacyScore).toBeNull();
-    expect(privacy.unavailable).toEqual([{ check: "app permissions (TCC database)", reason: "denied" }]);
+    expect(privacy.unavailable).toEqual([
+      { check: "app permissions (TCC database)", reason: "denied" },
+    ]);
   });
 
   test("scores the machine when the TCC database is readable", async () => {
     installFakeProbe({
       sqlite3: (args) => ({
         status: "ok",
-        value: (args[1] ?? "").includes("kTCCServiceScreenCapture") ? "us.zoom.xos\ncom.apple.screencaptureui" : "",
+        value: (args[1] ?? "").includes("kTCCServiceScreenCapture")
+          ? "us.zoom.xos\ncom.apple.screencaptureui"
+          : "",
       }),
     });
     const res = await getPrivacy();

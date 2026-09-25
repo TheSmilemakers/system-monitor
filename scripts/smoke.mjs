@@ -36,13 +36,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function requestWithHost(path, host) {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: "127.0.0.1", port: PORT, path, method: "GET", headers: { Host: host }, timeout: 60_000 },
+      {
+        host: "127.0.0.1",
+        port: PORT,
+        path,
+        method: "GET",
+        headers: { Host: host },
+        timeout: 60_000,
+      },
       (res) => {
         res.resume();
         res.on("end", () => resolve(res.statusCode));
       },
     );
-    req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("timeout"));
+    });
     req.on("error", reject);
     req.end();
   });
@@ -91,12 +101,25 @@ async function main() {
   });
 
   let serverLog = "";
-  child.stdout.on("data", (d) => { serverLog += d.toString(); });
-  child.stderr.on("data", (d) => { serverLog += d.toString(); });
+  child.stdout.on("data", (d) => {
+    serverLog += d.toString();
+  });
+  child.stderr.on("data", (d) => {
+    serverLog += d.toString();
+  });
 
-  const cleanup = () => { try { child.kill("SIGTERM"); } catch { /* already gone */ } };
+  const cleanup = () => {
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      /* already gone */
+    }
+  };
   process.on("exit", cleanup);
-  process.on("SIGINT", () => { cleanup(); process.exit(130); });
+  process.on("SIGINT", () => {
+    cleanup();
+    process.exit(130);
+  });
 
   try {
     console.log(`\n\x1b[1mSmoke test (${PROD ? "production" : "development"})\x1b[0m`);
@@ -122,8 +145,16 @@ async function main() {
 
     // A Turbopack/webpack panic surfaces in the log even when a status looks sane.
     const panicked = /FATAL|panic|Failed to write app endpoint/i.test(serverLog);
-    record("no bundler panic in server output", !panicked,
-      panicked ? serverLog.split("\n").find((l) => /FATAL|panic/i.test(l))?.slice(0, 120) : "clean");
+    record(
+      "no bundler panic in server output",
+      !panicked,
+      panicked
+        ? serverLog
+            .split("\n")
+            .find((l) => /FATAL|panic/i.test(l))
+            ?.slice(0, 120)
+        : "clean",
+    );
 
     for (const route of ["/api/stats", "/api/scan", "/api/cleanup", "/api/privacy"]) {
       const res = await fetch(`${BASE}${route}`, { signal: AbortSignal.timeout(60_000) });
@@ -146,7 +177,11 @@ async function main() {
     const cc = headers.get("cache-control") ?? "";
     record("system JSON is not cacheable", cc.includes("no-store"), cc || "absent");
     const csp = headers.get("content-security-policy") ?? "";
-    record("CSP forbids framing", csp.includes("frame-ancestors 'none'"), csp ? "present" : "absent");
+    record(
+      "CSP forbids framing",
+      csp.includes("frame-ancestors 'none'"),
+      csp ? "present" : "absent",
+    );
   } finally {
     cleanup();
     await sleep(300);

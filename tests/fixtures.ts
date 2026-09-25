@@ -30,7 +30,8 @@ export const VM_STAT_OUTPUT = [
   "Pages occupied by compressor:             50000.",
 ].join("\n");
 
-export const SWAP_OUTPUT = "vm.swapusage: total = 2048.00M  used = 512.00M  free = 1536.00M  (encrypted)";
+export const SWAP_OUTPUT =
+  "vm.swapusage: total = 2048.00M  used = 512.00M  free = 1536.00M  (encrypted)";
 
 export const DF_OUTPUT = [
   "Filesystem        Size    Used   Avail Capacity iused      ifree %iused  Mounted on",
@@ -70,7 +71,8 @@ export const LSOF_OUTPUT = [
 ].join("\n");
 
 export const USER_AGENTS_OUTPUT = "com.example.updater.plist\ncom.google.keystone.agent.plist";
-export const SYS_AGENTS_OUTPUT = "com.apple.foo.plist\ncom.docker.vmnetd.plist\ncom.acme.helper.plist";
+export const SYS_AGENTS_OUTPUT =
+  "com.apple.foo.plist\ncom.docker.vmnetd.plist\ncom.acme.helper.plist";
 export const DAEMONS_OUTPUT = "com.apple.bar.plist";
 
 const ok = (value: string): Probe<string> => ({ status: "ok", value });
@@ -112,7 +114,8 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         return ok(LSOF_OUTPUT);
       case "ls": {
         const target = args[0] ?? "";
-        if (target.endsWith("/Library/LaunchAgents") && !target.startsWith("/Library")) return ok(USER_AGENTS_OUTPUT);
+        if (target.endsWith("/Library/LaunchAgents") && !target.startsWith("/Library"))
+          return ok(USER_AGENTS_OUTPUT);
         if (target === "/Library/LaunchAgents") return ok(SYS_AGENTS_OUTPUT);
         if (target === "/Library/LaunchDaemons") return ok(DAEMONS_OUTPUT);
         return ok("");
@@ -136,7 +139,9 @@ export function installFakeProbe(overrides: ProbeOverrides = {}): void {
 export function installHeaders(values: Record<string, string | undefined>): void {
   const map = new Map<string, string>();
   for (const [k, v] of Object.entries(values)) if (v !== undefined) map.set(k.toLowerCase(), v);
-  __setHeadersProvider(async () => ({ get: (name: string) => map.get(name.toLowerCase()) ?? null }));
+  __setHeadersProvider(async () => ({
+    get: (name: string) => map.get(name.toLowerCase()) ?? null,
+  }));
 }
 
 export function installLoopbackHeaders(): void {

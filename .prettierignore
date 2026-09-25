@@ -1,0 +1,12 @@
+.next/
+node_modules/
+bun.lock
+tsconfig.tsbuildinfo
+*.md
+*.html
+*.pdf
+*.png
+docs/
+.claude/
+AGENTS.md
+CLAUDE.md

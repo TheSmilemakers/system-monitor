@@ -217,7 +217,10 @@ export function parseStats(raw: unknown): SystemStats {
     uptime: str(raw.uptime) ? raw.uptime : "",
     battery:
       isObj(raw.battery) && num(raw.battery.percent)
-        ? { percent: raw.battery.percent, charging: bool(raw.battery.charging) ? raw.battery.charging : false }
+        ? {
+            percent: raw.battery.percent,
+            charging: bool(raw.battery.charging) ? raw.battery.charging : false,
+          }
         : null,
     history: arr(raw.history)
       ? raw.history

@@ -3,11 +3,7 @@
 import { readdir, lstat, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  getCleanupTarget,
-  isAtOrUnder,
-  isWithinPermittedRoots,
-} from "@/lib/cleanup-targets";
+import { getCleanupTarget, isAtOrUnder, isWithinPermittedRoots } from "@/lib/cleanup-targets";
 import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
 import { probe } from "@/lib/probe";
 import { processIdentity, sameIdentity } from "@/lib/process-identity";

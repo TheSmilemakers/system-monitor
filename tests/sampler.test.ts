@@ -40,7 +40,14 @@ describe("sample()", () => {
     expect(s.complete).toBe(true);
     expect(s.unavailable).toEqual([]);
 
-    expect(s.cpu).toEqual({ user: 12.5, system: 7.5, idle: 80, used: 20, model: "Apple M1 Pro", cores: 10 });
+    expect(s.cpu).toEqual({
+      user: 12.5,
+      system: 7.5,
+      idle: 80,
+      used: 20,
+      model: "Apple M1 Pro",
+      cores: 10,
+    });
     expect(s.load).toEqual([2.1, 2.35, 2.5]);
 
     // (active + wired + compressor) pages × the page size read from the machine (M-16).
@@ -56,7 +63,14 @@ describe("sample()", () => {
     expect(s.processes.total).toBe(612);
     expect(s.processes.threads).toBe(3210);
     expect(s.processes.top.map((p) => p.pid)).toEqual([648, 637, 900, 902, 901, 950]);
-    expect(s.processes.top[0]).toEqual({ user: "rajan", pid: 648, cpu: 72, mem: 0.4, rss: 63488 * 1024, command: "fileproviderd" });
+    expect(s.processes.top[0]).toEqual({
+      user: "rajan",
+      pid: 648,
+      cpu: 72,
+      mem: 0.4,
+      rss: 63488 * 1024,
+      command: "fileproviderd",
+    });
     expect(s.uptime).toBe("18 days, 11 mins");
     expect(s.battery).toEqual({ percent: 80, charging: true });
     expect(s.timestamp).toBe(T0.getTime());
@@ -95,7 +109,9 @@ describe("sample()", () => {
   });
 
   test("partial output is used, and still flagged", async () => {
-    installFakeProbe({ uptime: () => ({ status: "partial", value: " up 3 days, 2:15, 1 user", reason: "timeout" }) });
+    installFakeProbe({
+      uptime: () => ({ status: "partial", value: " up 3 days, 2:15, 1 user", reason: "timeout" }),
+    });
     const s = await sample();
     expect(s.uptime).toBe("3 days, 2:15");
     expect(s.unavailable).toEqual([{ check: "uptime", reason: "partial" }]);

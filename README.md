@@ -61,7 +61,7 @@ Open <http://localhost:3000>. `bun run dev` and `bun run start` both bind `127.0
 ## Development
 
 ```bash
-bun run check:fast  # typecheck, lint (zero warnings), tests
+bun run check:fast  # typecheck, lint (zero warnings), format check, knip, tests
 bun run check       # what CI runs, exactly: check:fast, production dependency
                     # audit (hard fail), build, smoke against next start, smoke
                     # against next dev, every QA phase at 10/10
@@ -86,6 +86,10 @@ run and `bunfig.toml` fails the suite below 85% lines or 90% functions.
 `bun run dev` runs `scripts/preflight.mjs` first. It fails in a few milliseconds,
 with the reason, when Node is running under Rosetta on an Apple Silicon Mac or
 the lightningcss binary for this architecture is missing.
+
+A lefthook pre-commit hook (installed by `bun install` through the `prepare`
+script) runs Prettier, ESLint and the typecheck on staged files. `bun run format`
+rewrites; `bun run knip` reports unused files, exports and dependencies.
 
 CI (`.github/workflows/ci.yml`) calls `bun run check`, so local green and CI
 green mean the same thing. Bun is pinned through `packageManager`; actions are

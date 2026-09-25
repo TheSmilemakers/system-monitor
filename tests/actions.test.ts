@@ -5,7 +5,11 @@ import os from "node:os";
 import path from "node:path";
 
 import { cleanupItem, killProcess, stopServer } from "@/app/actions";
-import { CLEANUP_TARGETS, __setExtraCleanupTargets, type CleanupTarget } from "@/lib/cleanup-targets";
+import {
+  CLEANUP_TARGETS,
+  __setExtraCleanupTargets,
+  type CleanupTarget,
+} from "@/lib/cleanup-targets";
 import { processIdentity } from "@/lib/process-identity";
 
 import { installFakeProbe, installHeaders, installLoopbackHeaders, resetSeams } from "./fixtures";
@@ -58,7 +62,11 @@ describe("every action enforces the trust boundary first", () => {
 
 describe("killProcess", () => {
   test("rejects invalid and protected PIDs without consulting the system", async () => {
-    installFakeProbe({ ps: () => { throw new Error("must not be called"); } });
+    installFakeProbe({
+      ps: () => {
+        throw new Error("must not be called");
+      },
+    });
     for (const pid of [0, 1, -1, 2.5, Number.NaN]) {
       const r = await killProcess(pid);
       expect(r.success).toBe(false);
@@ -73,7 +81,10 @@ describe("killProcess", () => {
 
   test("refuses a process owned by another user", async () => {
     installFakeProbe({
-      ps: (args) => ({ status: "ok", value: args[0] === "-o" ? "root Mon Sep 22 07:00:00 2026" : "" }),
+      ps: (args) => ({
+        status: "ok",
+        value: args[0] === "-o" ? "root Mon Sep 22 07:00:00 2026" : "",
+      }),
       whoami: () => ({ status: "ok", value: "rajan" }),
     });
     const r = await killProcess(4242);
@@ -83,7 +94,10 @@ describe("killProcess", () => {
 
   test("refuses when the current user cannot be determined", async () => {
     installFakeProbe({
-      ps: (args) => ({ status: "ok", value: args[0] === "-o" ? "rajan Mon Sep 22 07:00:00 2026" : "" }),
+      ps: (args) => ({
+        status: "ok",
+        value: args[0] === "-o" ? "rajan Mon Sep 22 07:00:00 2026" : "",
+      }),
       whoami: () => ({ status: "denied" }),
     });
     const r = await killProcess(4242);
@@ -134,7 +148,11 @@ describe("cleanupItem", () => {
   });
 
   describe("real deletion in a scratch directory beneath a permitted root", () => {
-    const scratch = path.join(os.homedir(), "Library/Caches", `system-monitor-test-${process.pid}-${Date.now()}`);
+    const scratch = path.join(
+      os.homedir(),
+      "Library/Caches",
+      `system-monitor-test-${process.pid}-${Date.now()}`,
+    );
     const outside = path.join(os.tmpdir(), `system-monitor-outside-${process.pid}`);
 
     const target = (overrides: Partial<CleanupTarget>): CleanupTarget => ({

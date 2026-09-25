@@ -135,11 +135,17 @@ export function Panel({
   return (
     <Card className="border-border" aria-busy={busy}>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 px-4 pb-2 pt-3">
-        <h2 id={`${id}-heading`} className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
+        <h2
+          id={`${id}-heading`}
+          className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground"
+        >
           {title}
           {badges}
           {stale && (
-            <Badge variant="outline" className="border-amber-500/30 font-mono text-xs text-amber-400">
+            <Badge
+              variant="outline"
+              className="border-amber-500/30 font-mono text-xs text-amber-400"
+            >
               showing previous result
             </Badge>
           )}
@@ -185,7 +191,10 @@ export function Panel({
         )}
 
         {busy && phase === "loading" && (
-          <p role="status" className="py-8 text-center font-mono text-sm text-muted-foreground motion-safe:animate-pulse">
+          <p
+            role="status"
+            className="py-8 text-center font-mono text-sm text-muted-foreground motion-safe:animate-pulse"
+          >
             {loadingMessage}
           </p>
         )}

@@ -18,15 +18,30 @@ import { singleFlight } from "@/lib/single-flight";
  * swallowed into a perfect score (H-03).
  */
 
-const KNOWN_TRACKERS: Record<string, { category: string; description: string; severity: "high" | "medium" | "low" }> = {
-  "google-analytics": { category: "Analytics", description: "Google Analytics", severity: "medium" },
+const KNOWN_TRACKERS: Record<
+  string,
+  { category: string; description: string; severity: "high" | "medium" | "low" }
+> = {
+  "google-analytics": {
+    category: "Analytics",
+    description: "Google Analytics",
+    severity: "medium",
+  },
   googleads: { category: "Ads", description: "Google Ads", severity: "high" },
   doubleclick: { category: "Ads", description: "Google DoubleClick", severity: "high" },
   "graph.facebook": { category: "Social", description: "Facebook Graph API", severity: "high" },
   facebook: { category: "Social", description: "Facebook/Meta", severity: "high" },
   fbcdn: { category: "Social", description: "Facebook CDN", severity: "medium" },
-  crashlytics: { category: "Crash Reporting", description: "Firebase Crashlytics", severity: "low" },
-  "app-measurement": { category: "Analytics", description: "Firebase Analytics", severity: "medium" },
+  crashlytics: {
+    category: "Crash Reporting",
+    description: "Firebase Crashlytics",
+    severity: "low",
+  },
+  "app-measurement": {
+    category: "Analytics",
+    description: "Firebase Analytics",
+    severity: "medium",
+  },
   amplitude: { category: "Analytics", description: "Amplitude", severity: "medium" },
   mixpanel: { category: "Analytics", description: "Mixpanel", severity: "medium" },
   segment: { category: "Analytics", description: "Segment", severity: "medium" },
@@ -50,7 +65,11 @@ const KNOWN_TRACKERS: Record<string, { category: string; description: string; se
 const APPLE_TELEMETRY = ["xp.apple.com", "metrics.apple.com", "diagnostics.apple.com"];
 
 const TCC_CATEGORIES = [
-  { service: "kTCCServiceAccessibility", name: "Accessibility (can observe keystrokes)", highRisk: true },
+  {
+    service: "kTCCServiceAccessibility",
+    name: "Accessibility (can observe keystrokes)",
+    highRisk: true,
+  },
   { service: "kTCCServiceScreenCapture", name: "Screen Recording", highRisk: true },
   { service: "kTCCServiceListenEvent", name: "Input Monitoring", highRisk: true },
   { service: "kTCCServiceCamera", name: "Camera", highRisk: false },
@@ -151,7 +170,8 @@ async function scan() {
         title: `macOS diagnostics (${appleHits.length} connections)`,
         detail: appleHits.join("\n"),
         items: appleHits,
-        recommendation: "Disable in System Settings → Privacy & Security → Analytics & Improvements.",
+        recommendation:
+          "Disable in System Settings → Privacy & Security → Analytics & Improvements.",
       });
     }
 
@@ -164,7 +184,8 @@ async function scan() {
         detail:
           "These remote addresses did not resolve to a hostname, so they could not be checked against the tracker list. They are not known-clean.",
         items: [`${unknownCount} unresolved of ${connectionCount} established`],
-        recommendation: "Inspect with Little Snitch or a DNS log if the count is unexpectedly high.",
+        recommendation:
+          "Inspect with Little Snitch or a DNS log if the count is unexpectedly high.",
       });
     }
   }
@@ -173,8 +194,27 @@ async function scan() {
   if (!hasValue(psRes)) {
     unavailable.push({ check: "process list (ps)", reason: psRes.status });
   } else {
-    const keywords = ["keylog", "keystroke", "spyware", "surveillance", "sniff", "intercept", "meterpreter", "cobalt"];
-    const safe = ["screencapture", "screenshotservices", "activitymonitor", "com.apple", "windowserver", "loginwindow", "corespotlight", "next-server", "system-monitor"];
+    const keywords = [
+      "keylog",
+      "keystroke",
+      "spyware",
+      "surveillance",
+      "sniff",
+      "intercept",
+      "meterpreter",
+      "cobalt",
+    ];
+    const safe = [
+      "screencapture",
+      "screenshotservices",
+      "activitymonitor",
+      "com.apple",
+      "windowserver",
+      "loginwindow",
+      "corespotlight",
+      "next-server",
+      "system-monitor",
+    ];
     const suspicious = psRes.value
       .split("\n")
       .filter((line) => {
@@ -192,7 +232,8 @@ async function scan() {
         title: `${suspicious.length} process(es) with suspicious names`,
         detail: suspicious.join("\n"),
         items: suspicious,
-        recommendation: "Investigate immediately — these may observe keystrokes or screen activity.",
+        recommendation:
+          "Investigate immediately — these may observe keystrokes or screen activity.",
       });
     }
   }
@@ -243,7 +284,13 @@ async function scan() {
   }
 
   // --- Persistence ---
-  const knownVendors = ["com.apple.", "com.google.", "com.microsoft.", "com.docker.", "com.spotify."];
+  const knownVendors = [
+    "com.apple.",
+    "com.google.",
+    "com.microsoft.",
+    "com.docker.",
+    "com.spotify.",
+  ];
   const agents = [
     ...(isOk(userAgentsRes) ? userAgentsRes.value.split("\n") : []),
     ...(isOk(sysAgentsRes) ? sysAgentsRes.value.split("\n") : []),
@@ -264,7 +311,13 @@ async function scan() {
     });
   }
 
-  const order: Record<PrivacyFinding["severity"], number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  const order: Record<PrivacyFinding["severity"], number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+    info: 4,
+  };
   findings.sort((a, b) => order[a.severity] - order[b.severity]);
 
   const complete = unavailable.length === 0;

@@ -37,8 +37,10 @@ export function isAllowedOrigin(origin: string | null | undefined): boolean {
   // Absent Origin is normal for same-origin GETs and direct navigation.
   if (!origin) return true;
   try {
-    return LOOPBACK_HOSTNAMES.has(`${new URL(origin).hostname}`) ||
-      LOOPBACK_HOSTNAMES.has(`[${new URL(origin).hostname}]`);
+    return (
+      LOOPBACK_HOSTNAMES.has(`${new URL(origin).hostname}`) ||
+      LOOPBACK_HOSTNAMES.has(`[${new URL(origin).hostname}]`)
+    );
   } catch {
     return false;
   }
