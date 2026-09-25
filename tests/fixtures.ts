@@ -1,0 +1,149 @@
+/**
+ * Shared fixtures for exercising production entry points (route handlers,
+ * server actions, the sampler) against recorded macOS tool output.
+ *
+ * Installed through the seams in `@/lib/probe` and `@/lib/guard`, so the real
+ * machine is never consulted and Bun's process-wide module mocks are avoided.
+ */
+
+import { __setHeadersProvider } from "@/lib/guard";
+import { __setProbeImpl, type Probe } from "@/lib/probe";
+
+export const TOP_OUTPUT = [
+  "Processes: 612 total, 3 running, 609 sleeping, 3210 threads ",
+  "2026/09/26 00:30:00",
+  "Load Avg: 2.10, 2.35, 2.50 ",
+  "CPU usage: 12.5% user, 7.5% sys, 80.0% idle ",
+  "SharedLibs: 500M resident, 100M data, 50M linkedit.",
+  "PhysMem: 15G used (1600M wired, 800M compressor), 1000M unused.",
+].join("\n");
+
+export const VM_STAT_OUTPUT = [
+  "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+  "Pages free:                               50000.",
+  "Pages active:                            200000.",
+  "Pages inactive:                          100000.",
+  "Pages speculative:                         1000.",
+  "Pages throttled:                              0.",
+  "Pages wired down:                        100000.",
+  "Pages purgeable:                           2000.",
+  "Pages occupied by compressor:             50000.",
+].join("\n");
+
+export const SWAP_OUTPUT = "vm.swapusage: total = 2048.00M  used = 512.00M  free = 1536.00M  (encrypted)";
+
+export const DF_OUTPUT = [
+  "Filesystem        Size    Used   Avail Capacity iused      ifree %iused  Mounted on",
+  "/dev/disk3s1s1   926Gi    12Gi   800Gi     2%  500000 8000000000    0%   /",
+].join("\n");
+
+/** Column order: USER PID %CPU %MEM VSZ RSS TT STAT STARTED TIME COMMAND */
+export const PS_OUTPUT = [
+  "USER   PID  %CPU %MEM      VSZ    RSS   TT  STAT STARTED      TIME COMMAND",
+  "rajan  648  72.0  0.4 12345678  63488   ??  S    Mon07AM   1:23.45 /System/Library/PrivateFrameworks/FileProvider.framework/Support/fileproviderd",
+  "rajan  900   3.0  1.4  1234567 227328   ??  S    Mon07AM   0:01.00 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "rajan  901   1.0  0.5  1234567  81920   ??  S    Mon07AM   0:01.00 /Applications/Safari.app/Contents/MacOS/Safari",
+  "rajan  902   2.0  0.9  1234567 122880   ??  S    Mon07AM   0:01.00 /Applications/Slack.app/Contents/MacOS/Slack",
+  "root   637  11.1  0.1  1234567  15360   ??  Ss   Mon07AM   0:10.00 /usr/sbin/filecoordinationd",
+  "rajan  950   0.5  0.1  1234567  10240   ??  S    Mon07AM   0:00.10 /usr/libexec/trustd",
+].join("\n");
+
+export const PS_OUTPUT_IDLE = [
+  "USER   PID  %CPU %MEM      VSZ    RSS   TT  STAT STARTED      TIME COMMAND",
+  "rajan  648   5.0  0.4 12345678  63488   ??  S    Mon07AM   1:23.45 /System/Library/PrivateFrameworks/FileProvider.framework/Support/fileproviderd",
+  "root   637   1.1  0.1  1234567  15360   ??  Ss   Mon07AM   0:10.00 /usr/sbin/filecoordinationd",
+].join("\n");
+
+export const PMSET_OUTPUT = [
+  "Now drawing from 'AC Power'",
+  " -InternalBattery-0 (id=1234)\t80%; charging; 0:45 remaining present: true",
+].join("\n");
+
+export const UPTIME_OUTPUT = " 0:30  up 18 days, 11 mins, 3 users, load averages: 2.10 2.35 2.50";
+
+/** Column order: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME (STATE) */
+export const LSOF_OUTPUT = [
+  "COMMAND     PID  USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME",
+  "Google      900 rajan   23u  IPv4 0x1               0t0  TCP 192.168.1.5:50000->10.0.0.9:443 (ESTABLISHED)",
+  "Slack       902 rajan   24u  IPv4 0x2               0t0  TCP 192.168.1.5:50001->999.999.1.1:443 (ESTABLISHED)",
+  "rapportd    300 rajan   10u  IPv4 0x3               0t0  TCP *:49152 (LISTEN)",
+].join("\n");
+
+export const USER_AGENTS_OUTPUT = "com.example.updater.plist\ncom.google.keystone.agent.plist";
+export const SYS_AGENTS_OUTPUT = "com.apple.foo.plist\ncom.docker.vmnetd.plist\ncom.acme.helper.plist";
+export const DAEMONS_OUTPUT = "com.apple.bar.plist";
+
+const ok = (value: string): Probe<string> => ({ status: "ok", value });
+
+/** Per-command fixture responses; override any of them per test. */
+export type ProbeOverrides = Partial<Record<string, (args: readonly string[]) => Probe<string>>>;
+
+export function fakeProbe(overrides: ProbeOverrides = {}) {
+  return async (file: string, args: readonly string[]): Promise<Probe<string>> => {
+    const custom = overrides[file];
+    if (custom) return custom(args);
+    switch (file) {
+      case "top":
+        return ok(TOP_OUTPUT);
+      case "vm_stat":
+        return ok(VM_STAT_OUTPUT);
+      case "sysctl": {
+        const key = args[args.length - 1];
+        if (key === "vm.swapusage") return ok(SWAP_OUTPUT);
+        if (key === "hw.memsize") return ok("17179869184");
+        if (key === "hw.ncpu") return ok("10");
+        if (key === "machdep.cpu.brand_string") return ok("Apple M1 Pro");
+        if (key === "hw.pagesize") return ok("16384");
+        return { status: "failed", error: `unexpected sysctl ${key}` };
+      }
+      case "df":
+        return ok(DF_OUTPUT);
+      case "ps":
+        // `ps -o user=,lstart= -p <pid>` is process identity; `ps aux` is the list.
+        if (args[0] === "-o") return ok("rajan Mon Sep 22 07:00:00 2026");
+        return ok(PS_OUTPUT);
+      case "pmset":
+        return ok(PMSET_OUTPUT);
+      case "uptime":
+        return ok(UPTIME_OUTPUT);
+      case "whoami":
+        return ok("rajan");
+      case "lsof":
+        return ok(LSOF_OUTPUT);
+      case "ls": {
+        const target = args[0] ?? "";
+        if (target.endsWith("/Library/LaunchAgents") && !target.startsWith("/Library")) return ok(USER_AGENTS_OUTPUT);
+        if (target === "/Library/LaunchAgents") return ok(SYS_AGENTS_OUTPUT);
+        if (target === "/Library/LaunchDaemons") return ok(DAEMONS_OUTPUT);
+        return ok("");
+      }
+      case "sqlite3":
+        return { status: "denied" };
+      case "du":
+        return ok(`40960\t${args[1] ?? ""}`);
+      case "find":
+        return ok("a\nb\nc");
+      default:
+        return { status: "unsupported" };
+    }
+  };
+}
+
+export function installFakeProbe(overrides: ProbeOverrides = {}): void {
+  __setProbeImpl(fakeProbe(overrides));
+}
+
+export function installHeaders(values: Record<string, string | undefined>): void {
+  const map = new Map<string, string>();
+  for (const [k, v] of Object.entries(values)) if (v !== undefined) map.set(k.toLowerCase(), v);
+  __setHeadersProvider(async () => ({ get: (name: string) => map.get(name.toLowerCase()) ?? null }));
+}
+
+export function installLoopbackHeaders(): void {
+  installHeaders({ host: "127.0.0.1:3000", origin: "http://127.0.0.1:3000" });
+}
+
+export function resetSeams(): void {
+  __setProbeImpl(null);
+  __setHeadersProvider(null);
+}

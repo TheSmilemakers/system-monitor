@@ -693,6 +693,8 @@ const PHASES = {
           const required = [
             "cleanup-boundary", "process-actions", "parsers",
             "scoring", "probe", "schemas",
+            // Production entry points invoked as functions, not mirrored logic.
+            "routes", "actions", "sampler", "libs",
           ];
           const have = walk("tests").map((f) => path.basename(f));
           const missing = required.filter((r) => !have.some((h) => h.includes(r)));

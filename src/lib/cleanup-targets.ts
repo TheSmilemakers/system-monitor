@@ -239,9 +239,21 @@ export const CLEANUP_TARGETS: readonly CleanupTarget[] = [
   },
 ] as const;
 
+/**
+ * Test seam. Tests register a throwaway target that points at a scratch
+ * directory beneath a permitted root, so the real deletion path can be
+ * exercised without touching the user's caches. Extra targets must still pass
+ * the same containment checks as the catalogue; the seam grants no bypass.
+ */
+let extraTargets: readonly CleanupTarget[] = [];
+
+export function __setExtraCleanupTargets(targets: readonly CleanupTarget[] | null): void {
+  extraTargets = targets ?? [];
+}
+
 export function getCleanupTarget(id: string): CleanupTarget | null {
   if (typeof id !== "string" || id.length === 0) return null;
-  return CLEANUP_TARGETS.find((t) => t.id === id) ?? null;
+  return CLEANUP_TARGETS.find((t) => t.id === id) ?? extraTargets.find((t) => t.id === id) ?? null;
 }
 
 /**

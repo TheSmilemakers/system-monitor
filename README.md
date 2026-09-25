@@ -77,6 +77,12 @@ bun run qa 0        # QA gate for a phase (0-4)
 bun run qa all      # every phase; exits non-zero unless each scores 10/10
 ```
 
+Tests call the production entry points directly: every route handler, server
+action and the sampler run against recorded tool output installed through two
+seams, `__setProbeImpl` in `src/lib/probe.ts` and `__setHeadersProvider` in
+`src/lib/guard.ts` (see `tests/fixtures.ts`). Coverage is computed on every
+run and `bunfig.toml` fails the suite below 85% lines or 90% functions.
+
 `bun run dev` runs `scripts/preflight.mjs` first. It fails in a few milliseconds,
 with the reason, when Node is running under Rosetta on an Apple Silicon Mac or
 the lightningcss binary for this architecture is missing.

@@ -49,6 +49,11 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  // These are Next's defaults. They are written down so a future change to
+  // either is a visible diff, not a silent flip: a build must fail on a type
+  // error, and strict mode must stay on so double-invocation bugs surface.
+  reactStrictMode: true,
+  typescript: { ignoreBuildErrors: false },
   // M-13: pin the workspace root so a stray parent lockfile cannot redirect it.
   turbopack: {
     root: path.resolve(import.meta.dirname),
