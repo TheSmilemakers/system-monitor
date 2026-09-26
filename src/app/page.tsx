@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { cleanupItem, killProcess, stopServer } from "./actions";
+import { Annunciator } from "@/components/bench/annunciator";
 import { CommandPalette, type PaletteAction } from "@/components/bench/command-palette";
 import { Header } from "@/components/bench/header";
 import { Inspector } from "@/components/bench/inspector";
@@ -20,7 +21,14 @@ import { Button } from "@/components/ui/button";
 import { useOnDemand, usePolling } from "@/hooks/use-polling";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { currentRetro, currentTheme, setRetro, setTheme } from "@/lib/prefs";
-import { parseCleanup, parsePrivacy, parseScan, parseStats, type CleanupItem } from "@/lib/schemas";
+import {
+  parseCleanup,
+  parsePosture,
+  parsePrivacy,
+  parseScan,
+  parseStats,
+  type CleanupItem,
+} from "@/lib/schemas";
 
 /**
  * The bench. Header, vitals rail, workbench, inspector, palette.
@@ -40,6 +48,9 @@ export default function Dashboard() {
     parse: parseStats,
     enabled: refreshInterval > 0,
   });
+
+  // Posture changes slowly; a minute is plenty and keeps the probes cheap.
+  const posture = usePolling({ url: "/api/posture", intervalMs: 60_000, parse: parsePosture });
 
   const scan = useOnDemand("/api/scan", parseScan);
   const cleanup = useOnDemand("/api/cleanup", parseCleanup);
@@ -231,6 +242,8 @@ export default function Dashboard() {
         onOpenPalette={() => setPaletteOpen(true)}
         onStop={handleStop}
       />
+
+      <Annunciator report={posture.data} error={posture.error} />
 
       {/* Live region: async outcomes are announced, not just recoloured (M-08). */}
       <div aria-live="polite" aria-atomic="true" className="px-3 sm:px-4">

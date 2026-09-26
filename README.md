@@ -17,6 +17,11 @@ bun run dev
 
 Open <http://localhost:3000>. `bun run dev` and `bun run start` both bind `127.0.0.1`.
 
+The posture strip under the header is a row of lamps: firewall, SIP, Gatekeeper,
+FileVault, XProtect freshness, remote-access listeners, system extensions and
+pending updates. Press a lamp to read what it means and what to do. Every lamp
+is a read-only probe; one that cannot run stays dark rather than green.
+
 The bench: vitals on the left (seven-segment numerals and LED meters at retro
 level 1, the default), the process workbench on the right. Every process shows
 its code-signing trust (Apple, App Store, signed, ad-hoc, unsigned), publisher

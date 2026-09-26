@@ -98,7 +98,9 @@ export function usePolling<T>({ url, intervalMs, parse, enabled = true }: UsePol
         lastUpdated: s.lastUpdated,
       }));
     } finally {
-      inFlight.current = false;
+      // Only the current request may release the guard: an aborted, superseded
+      // request settling late must not clear a newer one's flag.
+      if (gen === generation.current) inFlight.current = false;
     }
   }, [url]);
 
@@ -112,6 +114,11 @@ export function usePolling<T>({ url, intervalMs, parse, enabled = true }: UsePol
     if (!enabled) return;
 
     let cancelled = false;
+    // Aliases for the cleanup: these are counters, not DOM nodes, so reading
+    // them at cleanup time is the intent (the exhaustive-deps heuristic cannot
+    // tell the difference).
+    const guard = inFlight;
+    const generationRef = generation;
 
     const tick = async () => {
       if (cancelled || !mounted.current) return;
@@ -137,6 +144,12 @@ export function usePolling<T>({ url, intervalMs, parse, enabled = true }: UsePol
       document.removeEventListener("visibilitychange", onVisible);
       if (timer.current) clearTimeout(timer.current);
       controller.current?.abort();
+      // Release the overlap guard synchronously. Under React Strict Mode the
+      // effect runs, is cleaned up, and runs again before the aborted fetch's
+      // rejection has settled; without this the second run's fetch was dropped
+      // by the guard and the first real sample waited a whole interval.
+      generationRef.current++;
+      guard.current = false;
     };
   }, [enabled, intervalMs, fetchOnce, refresh]);
 

@@ -140,6 +140,33 @@ export const CODESIGN_ADHOC = [
 
 export const CODESIGN_UNSIGNED = "/Users/rajan/Desktop/launch: code object is not signed at all";
 
+export const FIREWALL_OFF = "Firewall is disabled. (State = 0)\nFirewall stealth mode is on";
+export const FIREWALL_ON = "Firewall is enabled. (State = 1)\nFirewall stealth mode is off";
+export const SIP_ON = "System Integrity Protection status: enabled.";
+export const GATEKEEPER_ON = "assessments enabled";
+export const FILEVAULT_ON = "FileVault is On.";
+export const NETSTAT_OUTPUT = [
+  "Active Internet connections (including servers)",
+  "Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)",
+  "tcp4       0      0  127.0.0.1.3000         *.*                    LISTEN",
+  "tcp6       0      0  *.39503                *.*                    LISTEN",
+  "tcp4       0      0  *.22                   *.*                    LISTEN",
+  "tcp4       0      0  192.168.1.5.50000      10.0.0.9.443           ESTABLISHED",
+].join("\n");
+export const SYSEXT_OUTPUT = [
+  "1 extension(s)",
+  "--- com.apple.system_extension.endpoint_security",
+  "enabled\tactive\tteamID\tbundleID (version)\tname\t[state]",
+  "*\t*\tW5W395V82Y\tcom.nordvpn.macos.Shield (10.8.1/371)\tNordVPN protection\t[activated enabled]",
+].join("\n");
+export const SOFTWAREUPDATE_OUTPUT = [
+  "Software Update Tool",
+  "",
+  "Software Update found the following new or updated software:",
+  "* Label: Safari27.0TahoeAuto-27.0",
+  "\tTitle: Safari, Version: 27.0, Size: 249465KiB, Recommended: YES, ",
+].join("\n");
+
 const ok = (value: string): Probe<string> => ({ status: "ok", value });
 
 /** Per-command fixture responses; override any of them per test. */
@@ -194,6 +221,25 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         return ok(`40960\t${args[1] ?? ""}`);
       case "find":
         return ok("a\nb\nc");
+      case "/usr/libexec/ApplicationFirewall/socketfilterfw":
+        return ok(FIREWALL_OFF);
+      case "csrutil":
+        return ok(SIP_ON);
+      case "spctl":
+        return ok(GATEKEEPER_ON);
+      case "fdesetup":
+        return ok(FILEVAULT_ON);
+      case "plutil":
+        return ok("5360");
+      case "stat":
+        // XProtect plist modified 10 days before the fixed test clock (2026-09-26T00:30:00Z).
+        return ok(String(Math.floor(Date.parse("2026-09-16T00:30:00Z") / 1000)));
+      case "netstat":
+        return ok(NETSTAT_OUTPUT);
+      case "systemextensionsctl":
+        return ok(SYSEXT_OUTPUT);
+      case "softwareupdate":
+        return ok(SOFTWAREUPDATE_OUTPUT);
       default:
         return { status: "unsupported" };
     }

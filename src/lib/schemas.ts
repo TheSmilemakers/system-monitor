@@ -158,6 +158,25 @@ const str = (v: unknown): v is string => typeof v === "string";
 const bool = (v: unknown): v is boolean => typeof v === "boolean";
 const arr = (v: unknown): v is unknown[] => Array.isArray(v);
 
+export type LampState = "ok" | "caution" | "alarm" | "info" | "off";
+
+export interface PostureLamp {
+  id: string;
+  label: string;
+  state: LampState;
+  summary: string;
+  detail: string;
+}
+
+export interface PostureReport {
+  complete: boolean;
+  unavailable: Unavailable[];
+  lamps: PostureLamp[];
+  timestamp: number;
+}
+
+const LAMP_STATES: readonly string[] = ["ok", "caution", "alarm", "info", "off"];
+
 export class ContractError extends Error {
   constructor(what: string) {
     super(`Malformed API response: ${what}`);
@@ -368,6 +387,24 @@ export function parsePrivacy(raw: unknown): PrivacyResult {
     resolvedCount: num(raw.resolvedCount) ? raw.resolvedCount : 0,
     unknownCount: num(raw.unknownCount) ? raw.unknownCount : 0,
     trackerCount: num(raw.trackerCount) ? raw.trackerCount : 0,
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parsePosture(raw: unknown): PostureReport {
+  if (!isObj(raw)) throw new ContractError("posture is not an object");
+  if (!arr(raw.lamps)) throw new ContractError("posture.lamps must be an array");
+  const lamps: PostureLamp[] = raw.lamps.filter(isObj).map((l) => ({
+    id: str(l.id) ? l.id : "unknown",
+    label: str(l.label) ? l.label : "Unknown",
+    state: str(l.state) && LAMP_STATES.includes(l.state) ? (l.state as LampState) : "off",
+    summary: str(l.summary) ? l.summary : "",
+    detail: str(l.detail) ? l.detail : "",
+  }));
+  return {
+    complete: bool(raw.complete) ? raw.complete : false,
+    unavailable: unavailableList(raw.unavailable),
+    lamps,
     timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
   };
 }
