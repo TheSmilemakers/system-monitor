@@ -77,7 +77,9 @@ layers, tried in order: a curated knowledge base of over 500 macOS daemons,
 agents, developer tools and third-party apps (`src/data/process-kb.json`:
 what it is, what is normal, when to worry, whether it is safe to kill, what
 to check); Apple's own manual pages; and heuristics from the path, bundle
-and signature. Nothing leaves the machine.
+and signature. The identity card also says how the process was launched: by
+which launch agent or daemon, by launchd on demand, or by its parent. Nothing
+leaves the machine.
 
 ## Features
 

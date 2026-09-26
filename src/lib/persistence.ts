@@ -103,6 +103,31 @@ function dirs(): { dir: string; scope: LaunchItem["scope"] }[] {
   ];
 }
 
+export const PERSISTENCE_TTL_MS = 60_000;
+let reportCache: { at: number; report: PersistenceReport } | null = null;
+let reportInFlight: Promise<PersistenceReport> | null = null;
+
+/** The report, at most once a minute, for callers that only need a lookup. */
+export async function cachedPersistenceReport(now = Date.now()): Promise<PersistenceReport> {
+  if (reportCache && now - reportCache.at < PERSISTENCE_TTL_MS) return reportCache.report;
+  if (reportInFlight) return reportInFlight;
+  reportInFlight = persistenceReport(now)
+    .then((report) => {
+      reportCache = { at: now, report };
+      return report;
+    })
+    .finally(() => {
+      reportInFlight = null;
+    });
+  return reportInFlight;
+}
+
+/** Test seam. */
+export function __resetPersistenceCache(): void {
+  reportCache = null;
+  reportInFlight = null;
+}
+
 export async function persistenceReport(now = Date.now()): Promise<PersistenceReport> {
   const unavailable: PersistenceReport["unavailable"] = [];
   const baseline = await loadBaseline();

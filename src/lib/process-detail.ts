@@ -1,11 +1,13 @@
+import { launchProvenance, type LaunchProvenance } from "./launch";
 import { finiteInt, finiteNumber, hasValue, isOk, probe, type ProbeStatus } from "./probe";
 import { remoteAddressOf, resolveAll } from "./resolve-host";
-import { processHistory, type ProcessPoint } from "./sampler";
+import { lastProcesses, processHistory, type ProcessPoint } from "./sampler";
 
 /**
  * Live detail for one process, for the inspector: state and priority, thread
  * count and energy impact, open files, network connections with resolved
- * hosts, and the recent CPU and memory trace from the sampler's ring buffer.
+ * hosts, the recent CPU and memory trace from the sampler's ring buffer, and
+ * how the process was launched (see ./launch.ts).
  * Every probe is scoped to the pid and typed; a probe that cannot run is
  * reported in `unavailable` rather than shown as zero.
  */
@@ -30,6 +32,7 @@ export interface ProcessDetailReport {
   openFiles: number | null;
   connections: Connection[];
   history: ProcessPoint[];
+  launch: LaunchProvenance;
   unavailable: { check: string; reason: ProbeStatus }[];
   timestamp: number;
 }
@@ -97,6 +100,11 @@ export async function processDetail(pid: number, now = Date.now()): Promise<Proc
     return { ...c, host: r && r.status === "resolved" ? (r.hostnames[0] ?? null) : null };
   });
 
+  const known = lastProcesses().find((p) => p.pid === pid);
+  const launch: LaunchProvenance = known
+    ? await launchProvenance(known, now)
+    : { kind: "unknown", label: null, scope: null, file: null };
+
   let openFiles: number | null = null;
   if (hasValue(filesRes)) {
     openFiles = Math.max(0, filesRes.value.split("\n").filter(Boolean).length - 1);
@@ -114,6 +122,7 @@ export async function processDetail(pid: number, now = Date.now()): Promise<Proc
     openFiles,
     connections,
     history: processHistory(pid),
+    launch,
     unavailable,
     timestamp: now,
   };
