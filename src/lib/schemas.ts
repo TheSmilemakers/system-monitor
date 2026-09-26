@@ -220,6 +220,13 @@ export interface ProcessDetail {
   openFiles: number | null;
   connections: ProcessConnection[];
   history: { ts: number; cpu: number; mem: number }[];
+  /** How the process was launched: a launch item, launchd, its parent, or unknown. */
+  launch: {
+    kind: "launch-item" | "launchd" | "parent" | "unknown";
+    label: string | null;
+    scope: string | null;
+    file: string | null;
+  };
   unavailable: Unavailable[];
   timestamp: number;
 }
@@ -628,8 +635,24 @@ export function parseProcessDetail(raw: unknown): ProcessDetail {
           .filter((h) => num(h.ts) && num(h.cpu) && num(h.mem))
           .map((h) => ({ ts: h.ts as number, cpu: h.cpu as number, mem: h.mem as number }))
       : [],
+    launch: launchOf(raw.launch),
     unavailable: unavailableList(raw.unavailable),
     timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+const LAUNCH_KINDS = ["launch-item", "launchd", "parent", "unknown"] as const;
+
+function launchOf(v: unknown): ProcessDetail["launch"] {
+  const kind =
+    isObj(v) && str(v.kind) && (LAUNCH_KINDS as readonly string[]).includes(v.kind)
+      ? (v.kind as ProcessDetail["launch"]["kind"])
+      : "unknown";
+  return {
+    kind,
+    label: isObj(v) && str(v.label) ? v.label : null,
+    scope: isObj(v) && str(v.scope) ? v.scope : null,
+    file: isObj(v) && str(v.file) ? v.file : null,
   };
 }
 

@@ -204,6 +204,33 @@ export function Inspector({
                 <dd>{appOf(proc)}</dd>
                 <dt className="text-muted-foreground">path</dt>
                 <dd className="break-all">{proc.path || "no executable path"}</dd>
+                <dt className="text-muted-foreground">launched</dt>
+                <dd>
+                  {(() => {
+                    const launch = detail.data?.launch;
+                    const parent = chain[0];
+                    if (!launch) return <span className="text-muted-foreground">checking…</span>;
+                    switch (launch.kind) {
+                      case "launch-item":
+                        return (
+                          <span title={launch.file ?? undefined}>
+                            by launchd via {launch.label}
+                            {launch.scope ? ` (${launch.scope} launch item)` : ""}
+                          </span>
+                        );
+                      case "launchd":
+                        return launch.label
+                          ? `by launchd as ${launch.label}`
+                          : "by launchd on demand; no launch item names it";
+                      case "parent":
+                        return parent
+                          ? `by ${parent.command} (${parent.pid})`
+                          : `by PID ${proc.ppid}, no longer running`;
+                      default:
+                        return <span className="text-muted-foreground">unknown</span>;
+                    }
+                  })()}
+                </dd>
                 <dt className="text-muted-foreground">location</dt>
                 <dd>
                   {locationClass(proc.path).label}

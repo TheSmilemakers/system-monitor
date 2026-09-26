@@ -443,6 +443,10 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         return ok(SYSEXT_OUTPUT);
       case "kmutil":
         return ok(KMUTIL_OUTPUT_APPLE);
+      case "launchctl":
+        return ok(
+          "PID\tStatus\tLabel\n-\t0\tcom.apple.foo\n950\t0\tcom.example.updater\n902\t-9\tcom.tinyspeck.slackmacgap",
+        );
       case "crontab":
         return { status: "failed", error: "crontab: no crontab for rajan" };
       case "softwareupdate":
