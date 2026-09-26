@@ -66,8 +66,10 @@ The bench: vitals on the left (seven-segment numerals and LED meters at retro
 level 1, the default), the process workbench on the right. Every process shows
 its code-signing trust (Apple, App Store, signed, ad-hoc, unsigned), publisher
 and age. Click a name or press Enter to open the inspector; ⌘K opens the
-command palette. In the table, j and k move, i inspects, x asks to terminate,
-/ focuses search. Theme (night shift or daylight) and retro intensity (clean,
+command palette; the digits 1 to 8 pick a workbench tab. In the table, j and k
+move, i inspects, x asks to terminate, / focuses search; the Columns menu adds
+publisher, path, parent and connection columns, remembered per browser, and the
+filters include networked and new since baseline. Theme (night shift or daylight) and retro intensity (clean,
 instrument, tube) are in the header and remembered per browser.
 
 The inspector explains every process in plain words from three offline

@@ -48,6 +48,10 @@ export interface ProcessInfo {
   trust: TrustState;
   publisher: string | null;
   bundleId: string | null;
+  /** Established TCP connections held right now (one lsof pass, cached briefly). */
+  connections: number;
+  /** The executable was not running when the baseline was recorded. */
+  newSinceBaseline: boolean;
 }
 
 export interface ProcessAlert {
@@ -342,6 +346,8 @@ export function processInfoList(v: unknown): ProcessInfo[] {
         : "unknown",
     publisher: str(p.publisher) ? p.publisher : null,
     bundleId: str(p.bundleId) ? p.bundleId : null,
+    connections: num(p.connections) ? p.connections : 0,
+    newSinceBaseline: bool(p.newSinceBaseline) ? p.newSinceBaseline : false,
   }));
 }
 

@@ -18,6 +18,7 @@ import {
   CleanupView,
   PrivacyView,
   ScanView,
+  TABS,
   Workbench,
   type TabKey,
 } from "@/components/bench/workbench";
@@ -169,19 +170,32 @@ export default function Dashboard() {
     setTab("processes");
   }, []);
 
-  // ⌘K / Ctrl+K opens the palette from anywhere; Escape returns to live.
+  // ⌘K / Ctrl+K opens the palette from anywhere; Escape returns to live;
+  // the digits 1 to 8 pick a workbench tab when nothing editable has focus.
   useEffect(() => {
+    const editable = (t: EventTarget | null) =>
+      t instanceof HTMLElement &&
+      (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((o) => !o);
       } else if (e.key === "Escape") {
         setTapeAt((t) => (t === null ? t : null));
+      } else if (
+        /^[1-8]$/.test(e.key) &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !editable(e.target)
+      ) {
+        const next = TABS[Number(e.key) - 1];
+        if (next) openTab(next.key);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [openTab]);
 
   const data = stats.data;
   const levels = useMemo(() => (data ? computeLevels(data) : null), [data]);
