@@ -5,6 +5,7 @@ import { GET as getPrivacy } from "@/app/api/privacy/route";
 import { GET as getScan } from "@/app/api/scan/route";
 import { GET as getStats } from "@/app/api/stats/route";
 import { __resetIdentityCache, identitiesSettled } from "@/lib/identity";
+import { __resetMonitor, monitorSettled } from "@/lib/monitor";
 import { __resetMachineInfo } from "@/lib/probe";
 import { __resetResolveCache } from "@/lib/resolve-host";
 import { __resetSampler } from "@/lib/sampler";
@@ -38,7 +39,11 @@ beforeEach(() => {
   installLoopbackHeaders();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // The stats route ticks the monitor without awaiting it; let it finish
+  // before the seams change under it, then clear its module state.
+  await monitorSettled();
+  __resetMonitor();
   resetSeams();
   __resetMachineInfo();
   __resetSampler();
@@ -122,6 +127,18 @@ describe("GET /api/stats", () => {
     expect(body.unavailable.map((u) => u.check)).toEqual(
       expect.arrayContaining(["cpu/load (top)", "memory (vm_stat)", "processes (ps)"]),
     );
+  });
+
+  test("a failing monitor tick never affects the stats response", async () => {
+    // The monitor's snapshot lists connections with lsof; make that blow up.
+    installFakeProbe({
+      lsof: () => {
+        throw new Error("boom");
+      },
+    });
+    const res = await getStats();
+    expect(res.status).toBe(200);
+    await monitorSettled();
   });
 
   test("a single failed probe is reported, and the rest is still served", async () => {

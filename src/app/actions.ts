@@ -6,8 +6,10 @@ import path from "node:path";
 import { getCleanupTarget, isAtOrUnder, isWithinPermittedRoots } from "@/lib/cleanup-targets";
 import { executablePathFor } from "@/lib/exec-path";
 import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
+import { resetBaseline } from "@/lib/monitor";
 import { hasValue, probe } from "@/lib/probe";
 import { processIdentity, sameIdentity, type ProcessIdentity } from "@/lib/process-identity";
+import { lastProcesses } from "@/lib/sampler";
 
 export interface ActionResult {
   success: boolean;
@@ -340,4 +342,22 @@ export async function revealProcess(pid: number): Promise<ActionResult> {
   return res.status === "ok"
     ? { success: true }
     : { success: false, error: `open reported ${res.status}` };
+}
+
+/** Declare the current state normal: what is running and connected now becomes the baseline. */
+export async function resetMonitorBaseline(): Promise<ActionResult> {
+  try {
+    await assertLocalRequest();
+  } catch (e) {
+    return forbidden(e) ?? { success: false, error: "Request refused" };
+  }
+  try {
+    await resetBaseline({ processes: lastProcesses() });
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Could not reset the baseline",
+    };
+  }
 }

@@ -77,6 +77,13 @@ interface HotEntry {
 const history: HistoryPoint[] = [];
 const hot = new Map<number, HotEntry>();
 
+let lastTop: ProcessInfo[] = [];
+
+/** The process list from the most recent sample; empty before the first. */
+export function lastProcesses(): ProcessInfo[] {
+  return lastTop;
+}
+
 /** Per-process trace for the inspector. Keyed by pid and approximate start time so PID reuse cannot splice histories. */
 export interface ProcessPoint {
   ts: number;
@@ -314,6 +321,7 @@ export async function sample(): Promise<StatsSample> {
   while (history.length > 0 && now - history[0].ts > HISTORY_WINDOW_MS) history.shift();
 
   recordProcessTraces(allProcs, now);
+  lastTop = allProcs;
 
   // --- Alerts by elapsed time and stable identity (M-03, M-17) ---
   const threshold = CPU_ALERT_THRESHOLD_PER_CORE * 100;
@@ -413,4 +421,5 @@ export function __resetSampler(): void {
   history.length = 0;
   hot.clear();
   traces.clear();
+  lastTop = [];
 }

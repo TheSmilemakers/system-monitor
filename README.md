@@ -26,6 +26,15 @@ The scope above the workbench draws CPU, memory, load and network throughput
 over the last five minutes on one grid, with a faint phosphor afterglow (none
 under reduced motion) and an alarm tick where a process went hot.
 
+The monitor runs while the app is open: once a minute it snapshots running
+executables (by path and signature), outbound destinations, network-bound
+listening ports, launch agents and daemons (by content hash) and the posture
+lamps, compares them with the baseline recorded on first run, and writes what
+changed to the Timeline tab. Alarms (an unsigned binary from Downloads, a launch
+item from an unrecognised vendor, SIP off) also post a macOS notification.
+"Reset baseline" makes the current state normal. State lives in
+`~/Library/Application Support/system-monitor` and never leaves the machine.
+
 The bench: vitals on the left (seven-segment numerals and LED meters at retro
 level 1, the default), the process workbench on the right. Every process shows
 its code-signing trust (Apple, App Store, signed, ad-hoc, unsigned), publisher

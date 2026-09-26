@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { cleanupItem, killProcess, stopServer } from "./actions";
+import { cleanupItem, killProcess, resetMonitorBaseline, stopServer } from "./actions";
 import { Annunciator } from "@/components/bench/annunciator";
 import { CommandPalette, type PaletteAction } from "@/components/bench/command-palette";
 import { Header } from "@/components/bench/header";
 import { Inspector } from "@/components/bench/inspector";
 import { Scope } from "@/components/bench/scope";
+import { TimelineView } from "@/components/bench/timeline-view";
 import { computeLevels, VitalsRail } from "@/components/bench/vitals-rail";
 import {
   CleanupView,
@@ -173,6 +174,7 @@ export default function Dashboard() {
   const paletteActions = useMemo<PaletteAction[]>(
     () => [
       { id: "processes", label: "Show processes", run: () => openTab("processes") },
+      { id: "timeline", label: "Show timeline", run: () => openTab("timeline") },
       { id: "scan", label: "Run system scan", run: () => openTab("scan") },
       { id: "cleanup", label: "Open disk cleanup", run: () => openTab("cleanup") },
       { id: "privacy", label: "Run privacy scan", run: () => openTab("privacy") },
@@ -359,6 +361,22 @@ export default function Dashboard() {
                 />
               ),
               privacy: <PrivacyView state={privacy} onClose={() => setTab("processes")} />,
+              timeline: (
+                <TimelineView
+                  active={tab === "timeline"}
+                  onResetBaseline={async () => {
+                    if (
+                      !window.confirm("Treat everything running and connected right now as normal?")
+                    )
+                      return;
+                    const r = await resetMonitorBaseline();
+                    announce(
+                      r.success ? "ok" : "error",
+                      r.success ? "Baseline reset." : (r.error ?? "Could not reset the baseline."),
+                    );
+                  }}
+                />
+              ),
             }}
           />
         </div>

@@ -212,6 +212,24 @@ export interface ProcessDetail {
   timestamp: number;
 }
 
+export type EventSeverity = "info" | "caution" | "alarm";
+
+export interface TimelineEvent {
+  id: string;
+  ts: number;
+  severity: EventSeverity;
+  category: string;
+  subject: string;
+  message: string;
+  rule: string;
+}
+
+export interface TimelineResult {
+  events: TimelineEvent[];
+  baselineAt: number | null;
+  timestamp: number;
+}
+
 export class ContractError extends Error {
   constructor(what: string) {
     super(`Malformed API response: ${what}`);
@@ -491,6 +509,24 @@ export function parseProcessDetail(raw: unknown): ProcessDetail {
           .map((h) => ({ ts: h.ts as number, cpu: h.cpu as number, mem: h.mem as number }))
       : [],
     unavailable: unavailableList(raw.unavailable),
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parseTimeline(raw: unknown): TimelineResult {
+  if (!isObj(raw) || !arr(raw.events)) throw new ContractError("timeline.events must be an array");
+  const events: TimelineEvent[] = raw.events.filter(isObj).map((e) => ({
+    id: str(e.id) ? e.id : "",
+    ts: num(e.ts) ? e.ts : 0,
+    severity: e.severity === "alarm" || e.severity === "caution" ? e.severity : "info",
+    category: str(e.category) ? e.category : "monitor",
+    subject: str(e.subject) ? e.subject : "",
+    message: str(e.message) ? e.message : "",
+    rule: str(e.rule) ? e.rule : "",
+  }));
+  return {
+    events,
+    baselineAt: num(raw.baselineAt) ? raw.baselineAt : null,
     timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
   };
 }

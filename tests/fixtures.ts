@@ -303,6 +303,18 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
             "    + 2001 start  (in dyld) + 1234  [0x1000]",
           ].join("\n"),
         );
+      case "shasum":
+        // One line per file argument: a stable fake hash derived from the path.
+        return ok(
+          args
+            .slice(2)
+            .map(
+              (p) => `${"0".repeat(60)}${(p.length % 10000).toString(16).padStart(4, "0")}  ${p}`,
+            )
+            .join("\n"),
+        );
+      case "osascript":
+        return ok("");
       case "man":
         // `man -w name` says whether a page exists; `man -P cat name` prints it.
         if (args[0] === "-w") {
