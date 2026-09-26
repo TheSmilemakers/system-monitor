@@ -7,6 +7,7 @@ import { finiteInt } from "@/lib/probe";
 import { sample } from "@/lib/sampler";
 import { singleFlight } from "@/lib/single-flight";
 import { formatSseEvent } from "@/lib/sse";
+import { loadSettings } from "@/lib/settings";
 import { loadWatches } from "@/lib/watch";
 
 /**
@@ -82,6 +83,7 @@ export async function GET(request: Request) {
                   ...data,
                   processes: { ...data.processes, top: await enrichProcesses(data.processes.top) },
                   watches: await loadWatches(),
+                  settings: await loadSettings(),
                 });
           if (!ok) break;
         } catch (e) {

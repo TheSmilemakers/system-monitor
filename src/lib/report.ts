@@ -22,6 +22,7 @@ export interface ReportInputs {
     connections: number;
     tracker: string | null;
     fresh: boolean;
+    owner?: string | null;
   }[];
   listeners: readonly { port: number; name: string | null }[];
 }
@@ -97,7 +98,7 @@ export function buildReport(i: ReportInputs): string {
   }
   out.push(`${pad("CONNS", 7)}${pad("NEW", 5)}${pad("DESTINATION", 36)}NOTE`);
   for (const d of i.destinations.slice(0, 25)) {
-    const note = d.tracker ? `tracker: ${d.tracker}` : "";
+    const note = d.tracker ? `tracker: ${d.tracker}` : (d.owner ?? "");
     out.push(
       `${rpad(String(d.connections), 5)}  ${pad(d.fresh ? "NEW" : "", 5)}${pad(d.host, 36)}${note}`
         .trimEnd()

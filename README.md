@@ -37,7 +37,12 @@ first run; and writes what changed to the Timeline tab. Alarms (an unsigned
 binary from Downloads, a launch item from an unrecognised vendor, SIP off, a new
 proxy, a Screen Recording grant) also post a macOS notification. The Permissions
 tab lists the last week of grant changes.
-"Reset baseline" makes the current state normal. State lives in
+Alarms post at most one macOS notification per check (a count and the first
+message when there are several); "Mute notifications" in the palette keeps the
+monitor quiet and the Timeline still fills. Notifications are posted through
+`osascript`, so macOS shows them as coming from Script Editor. A baseline from
+an older build is extended with the surfaces it lacks on the next check rather
+than treated as empty. "Reset baseline" makes the current state normal. State lives in
 `~/Library/Application Support/system-monitor` and never leaves the machine.
 
 Watch: the inspector's Watch button pins a process by executable path. The

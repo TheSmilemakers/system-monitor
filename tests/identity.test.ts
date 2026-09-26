@@ -204,6 +204,10 @@ describe("parsePsDetailed", () => {
 
   test("displayName", () => {
     expect(displayName("/usr/sbin/filecoordinationd")).toBe("filecoordinationd");
+    // A file named only by its version is named by the folder that owns the versions.
+    expect(displayName("/Users/rajan/.local/share/claude/versions/2.1.283")).toBe("claude 2.1.283");
+    expect(displayName("/opt/tool/v1.2.3")).toBe("tool v1.2.3");
+    expect(displayName("/1.2.3")).toBe("1.2.3");
     expect(displayName("kernel_task")).toBe("kernel_task");
     expect(displayName("")).toBe("unknown");
   });

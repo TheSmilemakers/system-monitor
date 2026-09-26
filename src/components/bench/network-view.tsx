@@ -105,6 +105,7 @@ export function NetworkView({
                     {d.processes.join(", ")}
                   </td>
                   <td className="px-2 py-1">
+                    {d.owner && <span className="text-muted-foreground">{d.owner}</span>}
                     {d.tracker && (
                       <span className="lamp" data-state="alarm">
                         <span>
@@ -113,7 +114,7 @@ export function NetworkView({
                       </span>
                     )}
                     {d.newSinceBaseline && (
-                      <span className="lamp ml-2" data-state="caution">
+                      <span className="lamp whitespace-nowrap ml-2" data-state="caution">
                         <span>new since baseline</span>
                       </span>
                     )}

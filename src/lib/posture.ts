@@ -42,6 +42,28 @@ export const REMOTE_PORTS: Record<number, string> = {
   445: "File Sharing (SMB)",
 };
 
+/** Other well-known listeners, named so a bound port reads as something. */
+export const KNOWN_PORTS: Record<number, string> = {
+  80: "HTTP server",
+  443: "HTTPS server",
+  3000: "development server",
+  3306: "MySQL",
+  3389: "Remote Desktop (RDP)",
+  4000: "development server",
+  5000: "AirPlay receiver or development server",
+  5432: "PostgreSQL",
+  6379: "Redis",
+  7000: "AirPlay",
+  8000: "development server",
+  8080: "HTTP server (alternate)",
+  8384: "Syncthing",
+  9000: "development server",
+  11434: "Ollama",
+  22000: "Syncthing sync",
+  27017: "MongoDB",
+  57621: "Spotify Connect",
+};
+
 // ---------- parsers (exported for tests) ----------
 
 export function parseFirewall(out: string): { enabled: boolean; stealth: boolean } | null {

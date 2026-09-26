@@ -91,6 +91,8 @@ export interface SystemStats {
   history: HistoryPoint[];
   alerts: ProcessAlert[];
   watches: WatchEntry[];
+  /** What the server keeps for the user; notifications may be muted. */
+  settings: { notifications: boolean };
   timestamp: number;
 }
 
@@ -261,6 +263,7 @@ export interface NetConnection {
   tracker: { category: string; description: string; severity: string } | null;
   appleTelemetry: boolean;
   newSinceBaseline: boolean;
+  owner: string | null;
 }
 
 export interface Destination {
@@ -269,6 +272,7 @@ export interface Destination {
   processes: string[];
   tracker: NetConnection["tracker"];
   newSinceBaseline: boolean;
+  owner: string | null;
 }
 
 export interface NetworkReport {
@@ -450,6 +454,10 @@ export function parseStats(raw: unknown): SystemStats {
     uptime: str(raw.uptime) ? raw.uptime : "",
     currentUser: str(raw.currentUser) ? raw.currentUser : "",
     watches: watchList(raw.watches),
+    settings: {
+      notifications:
+        isObj(raw.settings) && bool(raw.settings.notifications) ? raw.settings.notifications : true,
+    },
     battery:
       isObj(raw.battery) && num(raw.battery.percent)
         ? {
@@ -719,6 +727,7 @@ export function parseNetwork(raw: unknown): NetworkReport {
     tracker: trackerOf(c.tracker),
     appleTelemetry: bool(c.appleTelemetry) ? c.appleTelemetry : false,
     newSinceBaseline: bool(c.newSinceBaseline) ? c.newSinceBaseline : false,
+    owner: str(c.owner) ? c.owner : null,
   }));
   const destinations: Destination[] = arr(raw.destinations)
     ? raw.destinations.filter(isObj).map((d) => ({
@@ -727,6 +736,7 @@ export function parseNetwork(raw: unknown): NetworkReport {
         processes: strList(d.processes),
         tracker: trackerOf(d.tracker),
         newSinceBaseline: bool(d.newSinceBaseline) ? d.newSinceBaseline : false,
+        owner: str(d.owner) ? d.owner : null,
       }))
     : [];
   const listeners = arr(raw.listeners)

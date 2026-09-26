@@ -480,6 +480,7 @@ export function ProcessTable({
               type="button"
               onClick={() => setFilter(f.key)}
               aria-pressed={filter === f.key}
+              title={f.hint}
               className={`rounded border px-2 py-0.5 font-mono text-[11px] ${
                 filter === f.key
                   ? "border-phosphor/60 bg-phosphor/10 text-foreground"

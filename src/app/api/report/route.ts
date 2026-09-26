@@ -49,6 +49,7 @@ export async function GET() {
         connections: d.connections,
         tracker: d.tracker ? d.tracker.description : null,
         fresh: d.newSinceBaseline,
+        owner: d.owner,
       })),
       listeners: net.listeners,
     });

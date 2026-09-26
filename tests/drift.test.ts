@@ -274,6 +274,7 @@ describe("snapshot, posture and the permissions route against fixtures", () => {
     expect((await loadBaseline())?.snapshot.proxies).toEqual([]);
 
     await tick({ processes: [] }, T0, true); // previous = quiet
+    notifications.length = 0; // the old fixture baseline had no launch items, so that tick alarmed
     installFakeProbe({
       scutil: (args) =>
         args[0] === "--proxy"
@@ -283,7 +284,9 @@ describe("snapshot, posture and the permissions route against fixtures", () => {
     const events = await tick({ processes: [] }, T0 + TICK_INTERVAL_MS, true);
     const proxies = events.filter((e) => e.rule === "network.proxy-set");
     expect(proxies).toHaveLength(3);
-    expect(notifications).toEqual(expect.arrayContaining([proxies[0]?.message ?? ""]));
+    // Several alarms in one tick coalesce into one notification.
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatch(/^3 alarms\. A web proxy is now set/);
   });
 
   test("the permissions route carries the last week of grant events", async () => {

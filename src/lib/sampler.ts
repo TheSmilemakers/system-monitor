@@ -193,9 +193,19 @@ export interface StatsSample {
 /** The ps columns the sampler asks for, in order. `comm` is last because it may contain spaces. */
 export const PS_COLUMNS = "user=,pid=,ppid=,%cpu=,%mem=,rss=,etime=,comm=";
 
-/** Basename of an executable path, or the name itself when there is no path. */
+/**
+ * Basename of an executable path, or the name itself when there is no path.
+ * A file named only by its version ("2.1.283" under .../claude/versions/) is
+ * named by the folder that owns the versions, so it reads as "claude 2.1.283".
+ */
 export function displayName(path: string): string {
-  const base = path.split("/").filter(Boolean).pop() ?? path;
+  const parts = path.split("/").filter(Boolean);
+  const base = parts[parts.length - 1] ?? path;
+  if (/^v?\d+(\.\d+){1,3}$/.test(base) && parts.length >= 2) {
+    const parent = parts[parts.length - 2];
+    const owner = parent === "versions" ? parts[parts.length - 3] : parent;
+    if (owner && /^[A-Za-z][\w.-]*$/.test(owner)) return `${owner} ${base}`;
+  }
   return base || "unknown";
 }
 
@@ -209,7 +219,12 @@ export function parsePsDetailed(raw: string, limit = PROCESS_LIMIT): ProcessInfo
     .filter(Boolean)
     .map((line) => {
       const parts = line.trim().split(/\s+/);
-      const path = parts.slice(7).join(" ");
+      // ps wraps the name in parentheses when it cannot report the executable
+      // (exiting, or renamed): keep the name, there is no path to trust.
+      const path = parts
+        .slice(7)
+        .join(" ")
+        .replace(/^\((.*)\)$/, "$1");
       const identity = identityFor(path);
       return {
         user: parts[0] ?? "?",

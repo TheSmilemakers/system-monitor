@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { cleanupItem, killProcess, resetMonitorBaseline, stopServer } from "./actions";
+import {
+  cleanupItem,
+  killProcess,
+  resetMonitorBaseline,
+  setNotifications,
+  stopServer,
+} from "./actions";
 import { Annunciator } from "@/components/bench/annunciator";
 import { CommandPalette, type PaletteAction } from "@/components/bench/command-palette";
 import { Header } from "@/components/bench/header";
@@ -234,6 +240,24 @@ export default function Dashboard() {
         run: () => setRefreshInterval((v) => (v === 0 ? 5000 : 0)),
       },
       {
+        id: "notify",
+        label: data?.settings.notifications ? "Mute notifications" : "Unmute notifications",
+        hint: "alarms still land in the Timeline",
+        run: async () => {
+          const next = !(data?.settings.notifications ?? true);
+          const r = await setNotifications(next);
+          announce(
+            r.success ? "ok" : "error",
+            r.success
+              ? next
+                ? "Notifications on."
+                : "Notifications muted; alarms still land in the Timeline."
+              : (r.error ?? "Could not change notifications."),
+          );
+          if (r.success) stats.refresh();
+        },
+      },
+      {
         id: "theme",
         label: "Toggle theme",
         hint: "night shift or daylight",
@@ -249,7 +273,7 @@ export default function Dashboard() {
         },
       },
     ],
-    [openTab, stats, refreshInterval],
+    [openTab, stats, refreshInterval, data, announce],
   );
 
   // M-04: the first-load error is rendered *before* any loading early-return,
