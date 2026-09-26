@@ -179,6 +179,17 @@ export interface PostureReport {
 
 const LAMP_STATES: readonly string[] = ["ok", "caution", "alarm", "info", "off"];
 
+export type KillAdvice = "safe" | "restarts" | "avoid";
+
+export interface Explanation {
+  source: "knowledge-base" | "man-page" | "heuristic";
+  what: string;
+  normal: string | null;
+  worry: string | null;
+  kill: KillAdvice | null;
+  check: string | null;
+}
+
 export class ContractError extends Error {
   constructor(what: string) {
     super(`Malformed API response: ${what}`);
@@ -412,5 +423,21 @@ export function parsePosture(raw: unknown): PostureReport {
     unavailable: unavailableList(raw.unavailable),
     lamps,
     timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parseExplanation(raw: unknown): Explanation {
+  if (!isObj(raw) || !str(raw.what)) throw new ContractError("explanation is missing `what`");
+  const source =
+    raw.source === "knowledge-base" || raw.source === "man-page" ? raw.source : "heuristic";
+  const kill =
+    raw.kill === "safe" || raw.kill === "restarts" || raw.kill === "avoid" ? raw.kill : null;
+  return {
+    source,
+    what: raw.what,
+    normal: str(raw.normal) ? raw.normal : null,
+    worry: str(raw.worry) ? raw.worry : null,
+    kill,
+    check: str(raw.check) ? raw.check : null,
   };
 }

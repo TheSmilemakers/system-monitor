@@ -176,6 +176,27 @@ export const SOFTWAREUPDATE_OUTPUT = [
   "\tTitle: Safari, Version: 27.0, Size: 249465KiB, Recommended: YES, ",
 ].join("\n");
 
+/** `man -P cat fileproviderd`, with the overstrike bold that man emits for terminals. */
+export const MAN_FILEPROVIDERD = [
+  "FILEPROVIDERD(8)            System Manager's Manual           FILEPROVIDERD(8)",
+  "",
+  "N\bNA\bAM\bME\bE",
+  "     f\bfi\bil\ble\bep\bpr\bro\bov\bvi\bid\bde\ber\brd\bd \u2013 Part of File Coordination",
+  "",
+  "S\bSY\bYN\bNO\bOP\bPS\bSI\bIS\bS",
+  "     f\bfi\bil\ble\bep\bpr\bro\bov\bvi\bid\bde\ber\brd\bd",
+  "",
+  "D\bDE\bES\bSC\bCR\bRI\bIP\bPT\bTI\bIO\bON\bN",
+  "     f\bfi\bil\ble\bep\bpr\bro\bov\bvi\bid\bde\ber\brd\bd is the daemon controlling the interaction between",
+  "     extensions and filecoordinationd. It is also responsible for coordinating",
+  "     enumeration and property lookup.",
+  "",
+  "     There are no configuration options to fileproviderd, and users should not",
+  "     run fileproviderd manually.",
+  "",
+  "macOS                              11/07/17                              macOS",
+].join("\n");
+
 const ok = (value: string): Probe<string> => ({ status: "ok", value });
 
 /** Per-command fixture responses; override any of them per test. */
@@ -230,6 +251,14 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         return ok(`40960\t${args[1] ?? ""}`);
       case "find":
         return ok("a\nb\nc");
+      case "man":
+        // `man -w name` says whether a page exists; `man -P cat name` prints it.
+        if (args[0] === "-w") {
+          return args[1] === "fileproviderd"
+            ? ok("/usr/share/man/man8/fileproviderd.8")
+            : { status: "failed", error: `No manual entry for ${args[1]}` };
+        }
+        return ok(MAN_FILEPROVIDERD);
       case "/usr/libexec/ApplicationFirewall/socketfilterfw":
         return ok(FIREWALL_OFF);
       case "csrutil":

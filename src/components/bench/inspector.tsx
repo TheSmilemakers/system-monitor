@@ -8,7 +8,6 @@ import { formatBytes, formatDuration } from "@/lib/format";
 import {
   appOf,
   childrenOf,
-  explainTrust,
   formatAge,
   indexByPid,
   locationClass,
@@ -16,6 +15,7 @@ import {
 } from "@/lib/process-model";
 import type { ProcessAlert, ProcessInfo } from "@/lib/schemas";
 
+import { Explainer } from "./explainer";
 import { TrustLamp } from "./trust-lamp";
 
 export interface InspectorProps {
@@ -149,13 +149,8 @@ export function Inspector({
               </dl>
             </section>
 
-            {/* Explainer */}
-            <section aria-labelledby="insp-what" className="mt-3">
-              <h3 id="insp-what" className="engraved">
-                What it is
-              </h3>
-              <p className="mt-1 leading-relaxed">{explainTrust(proc)}</p>
-            </section>
+            {/* Explainer: knowledge base, man page or heuristic; trust line beneath. */}
+            <Explainer proc={proc} />
 
             {/* Live behaviour */}
             <section aria-labelledby="insp-now" className="mt-3">

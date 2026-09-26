@@ -1,0 +1,661 @@
+{
+  "$comment": "Curated explanations for common macOS processes and third-party helpers. Keyed by executable basename, matched case-insensitively. kill: safe = can be quit without harm; restarts = launchd relaunches it; avoid = killing breaks the session or the app.",
+  "kernel_task": {
+    "what": "The kernel itself, shown as a process. It also throttles CPU to control temperature by taking cycles for itself.",
+    "normal": "Low CPU. High CPU when the Mac is hot or on a weak charger is deliberate thermal throttling.",
+    "worry": "Sustained high CPU while the Mac is cool can indicate a misbehaving driver or a blocked fan.",
+    "kill": "avoid",
+    "check": "Check temperature and the power adapter; look for a kernel extension or system extension you installed recently."
+  },
+  "launchd": {
+    "what": "The first process. Starts and supervises every other daemon and agent, and relaunches the ones that must stay up.",
+    "normal": "Near-zero CPU.",
+    "worry": "Never itself; look at what it launched.",
+    "kill": "avoid",
+    "check": "Nothing to do here."
+  },
+  "WindowServer": {
+    "what": "Composites every window on screen and handles input. Every app's drawing goes through it.",
+    "normal": "Scales with what is on screen: animations, many windows, external displays, screen recording.",
+    "worry": "Sustained high CPU with nothing moving on screen usually means an app is redrawing constantly.",
+    "kill": "avoid",
+    "check": "Find the app with high CPU alongside it; close windows or disable transparency in Accessibility settings."
+  },
+  "fileproviderd": {
+    "what": "Coordinates cloud file providers (iCloud Drive, Dropbox, OneDrive, Google Drive) with the file system.",
+    "normal": "Idle. Busy after large sync changes or a fresh sign-in.",
+    "worry": "Hours of high CPU suggests a provider stuck enumerating a large tree.",
+    "kill": "restarts",
+    "check": "Open Finder, Locations, and see which provider is syncing; pause it before restarting."
+  },
+  "filecoordinationd": {
+    "what": "Mediates file access between apps and file providers so two processes do not write the same file at once.",
+    "normal": "Idle.",
+    "worry": "High CPU alongside fileproviderd points at a syncing provider.",
+    "kill": "restarts",
+    "check": "Same as fileproviderd."
+  },
+  "mds": {
+    "what": "The Spotlight metadata server. Schedules indexing and answers searches.",
+    "normal": "Bursts after files change; heavy for hours after a migration or a large download.",
+    "worry": "Constant high CPU for days.",
+    "kill": "restarts",
+    "check": "System Settings, Siri & Spotlight, Spotlight Privacy: exclude the folder that keeps changing."
+  },
+  "mds_stores": {
+    "what": "Spotlight's index store writer.",
+    "normal": "Busy while mds indexes.",
+    "worry": "See mds.",
+    "kill": "restarts",
+    "check": "See mds."
+  },
+  "mdworker": {
+    "what": "A Spotlight indexing worker. Reads a file and extracts its metadata; many run in parallel.",
+    "normal": "Short bursts.",
+    "worry": "Dozens at once for a long time: something is generating files continuously.",
+    "kill": "restarts",
+    "check": "See mds."
+  },
+  "mdworker_shared": {
+    "what": "A shared Spotlight indexing worker used for common file types.",
+    "normal": "Short bursts after files change.",
+    "worry": "See mdworker.",
+    "kill": "restarts",
+    "check": "See mds."
+  },
+  "corespotlightd": {
+    "what": "Indexes app-provided content (Mail, Notes, Messages) for Spotlight.",
+    "normal": "Bursts after those apps sync.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "bird": {
+    "what": "The iCloud Drive sync engine.",
+    "normal": "Busy after edits in iCloud Drive or Desktop and Documents sync.",
+    "worry": "Constant high CPU with iCloud status stuck.",
+    "kill": "restarts",
+    "check": "System Settings, Apple Account, iCloud Drive; sign out and in if it stays stuck."
+  },
+  "cloudd": {
+    "what": "CloudKit daemon. Syncs app data (Photos, Notes, Messages in iCloud, third-party apps) with iCloud.",
+    "normal": "Bursts.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "photoanalysisd": {
+    "what": "Analyses the Photos library for faces, scenes and memories.",
+    "normal": "High CPU for hours after importing photos, usually when the Mac is idle and plugged in.",
+    "worry": "Not a security concern.",
+    "kill": "restarts",
+    "check": "Let it finish overnight."
+  },
+  "photolibraryd": {
+    "what": "The Photos library database service.",
+    "normal": "Busy while Photos is open or syncing.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "trustd": {
+    "what": "Evaluates certificate trust for TLS connections and code signing.",
+    "normal": "Small bursts whenever apps open connections.",
+    "worry": "Constant CPU can indicate a certificate revocation check that keeps failing.",
+    "kill": "restarts",
+    "check": "Check the network; a captive portal or a broken proxy makes it retry."
+  },
+  "secd": {
+    "what": "The keychain and Secure Enclave access daemon.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "securityd": {
+    "what": "Keychain access and authorisation services.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "syspolicyd": {
+    "what": "Gatekeeper's policy engine. Decides whether downloaded software may run.",
+    "normal": "Bursts when an app first launches.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "XProtectService": {
+    "what": "Apple's built-in malware scanner, run on demand.",
+    "normal": "Bursts when apps launch or files are downloaded.",
+    "worry": "Not a concern.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "XprotectRemediator": {
+    "what": "Apple's background malware removal tool. Scans for and removes known threats.",
+    "normal": "Periodic runs, usually when idle.",
+    "worry": "Not a concern.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "coreaudiod": {
+    "what": "The audio server. Every app's sound passes through it.",
+    "normal": "Low CPU while audio plays.",
+    "worry": "High CPU with no audio playing suggests an audio plugin or virtual device misbehaving.",
+    "kill": "restarts",
+    "check": "Look for third-party audio drivers (virtual cables, loopback devices)."
+  },
+  "cfprefsd": {
+    "what": "Preferences daemon. Reads and writes app defaults for every process.",
+    "normal": "Idle.",
+    "worry": "An app writing preferences in a tight loop shows up here.",
+    "kill": "restarts",
+    "check": "Find the app with high CPU alongside it."
+  },
+  "distnoted": {
+    "what": "Distributed notifications between processes.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "loginwindow": {
+    "what": "Manages the login session: login, logout, lock screen.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Killing it logs you out."
+  },
+  "Finder": {
+    "what": "The desktop and file browser.",
+    "normal": "Low CPU. Busy when copying or when a folder with thousands of items is open.",
+    "worry": "Constant high CPU with nothing open often points at a stuck cloud folder or a broken Finder extension.",
+    "kill": "safe",
+    "check": "Relaunch from the Apple menu, Force Quit."
+  },
+  "Dock": {
+    "what": "The Dock, Mission Control, Launchpad and desktop widgets.",
+    "normal": "Idle.",
+    "worry": "High CPU usually comes from a widget.",
+    "kill": "safe",
+    "check": "Remove recently added widgets; the Dock relaunches on its own."
+  },
+  "SystemUIServer": {
+    "what": "Menu bar extras and system menus.",
+    "normal": "Idle.",
+    "worry": "A third-party menu bar item can keep it busy.",
+    "kill": "safe",
+    "check": "Quit menu bar apps one at a time."
+  },
+  "ControlCenter": {
+    "what": "Control Centre and its menu bar items.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Nothing to do."
+  },
+  "NotificationCenter": {
+    "what": "Notifications and the Notification Centre panel.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Nothing to do."
+  },
+  "Spotlight": {
+    "what": "The Spotlight search window.",
+    "normal": "Idle unless open.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Nothing to do."
+  },
+  "sharingd": {
+    "what": "AirDrop, Handoff, Continuity and shared clipboard.",
+    "normal": "Idle; bursts during AirDrop.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Turn AirDrop to Contacts Only or Off if you never use it."
+  },
+  "rapportd": {
+    "what": "Device-to-device communication for Continuity features (Universal Control, Sidecar, Handoff).",
+    "normal": "Idle. It listens on a network port for nearby Apple devices.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "identityservicesd": {
+    "what": "iMessage and FaceTime identity and registration.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "imagent": {
+    "what": "The iMessage and FaceTime transport agent.",
+    "normal": "Idle; bursts when messages arrive.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "nsurlsessiond": {
+    "what": "Background downloads and uploads on behalf of apps and system services.",
+    "normal": "Busy during updates, iCloud sync and app downloads.",
+    "worry": "Sustained heavy traffic with nothing you started: find the app using it.",
+    "kill": "restarts",
+    "check": "Look at the network trace on the scope and at which app is active."
+  },
+  "apsd": {
+    "what": "Apple Push Notification service client. Keeps one connection open for all notifications.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "softwareupdated": {
+    "what": "Checks for and downloads macOS updates.",
+    "normal": "Bursts; heavy while downloading an update.",
+    "worry": "Not a concern.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "mobileassetd": {
+    "what": "Downloads system assets: dictation models, fonts, XProtect definitions, Siri voices.",
+    "normal": "Bursts after updates or first use of a feature.",
+    "worry": "Not a concern.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "backupd": {
+    "what": "Time Machine.",
+    "normal": "Busy during backups.",
+    "worry": "Not a concern.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "diskarbitrationd": {
+    "what": "Mounts and unmounts disks.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "fseventsd": {
+    "what": "Records file system change events for Spotlight, Time Machine and apps that watch folders.",
+    "normal": "Low CPU; more while many files change.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "logd": {
+    "what": "The unified logging daemon. Collects log messages from every process.",
+    "normal": "Low CPU. Higher when something logs excessively.",
+    "worry": "Sustained CPU means a process is spamming the log.",
+    "kill": "avoid",
+    "check": "Open Console and see which process is most verbose."
+  },
+  "opendirectoryd": {
+    "what": "User accounts, groups and directory lookups (local and network).",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "mDNSResponder": {
+    "what": "DNS resolution and Bonjour discovery for every process.",
+    "normal": "Low CPU.",
+    "worry": "Sustained CPU can mean an app is flooding DNS lookups.",
+    "kill": "restarts",
+    "check": "Restarting it drops DNS caches; harmless."
+  },
+  "configd": {
+    "what": "Network configuration: interfaces, DNS, proxies, VPN state.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "networkd": {
+    "what": "Network stack services (connection tracking, proxies).",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "symptomsd": {
+    "what": "Network quality monitoring.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "airportd": {
+    "what": "Wi-Fi management.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "bluetoothd": {
+    "what": "The Bluetooth stack.",
+    "normal": "Low CPU while devices are connected.",
+    "worry": "High CPU usually points at a flaky peripheral.",
+    "kill": "restarts",
+    "check": "Forget and re-pair the device."
+  },
+  "powerd": {
+    "what": "Power management: sleep, wake, battery.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "hidd": {
+    "what": "Human interface devices: keyboard, mouse, trackpad.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "tccd": {
+    "what": "Privacy permissions (camera, microphone, screen recording, Full Disk Access).",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "sandboxd": {
+    "what": "Reports App Sandbox violations to the log.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "amfid": {
+    "what": "Apple Mobile File Integrity: verifies code signatures at launch.",
+    "normal": "Bursts at app launch.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "runningboardd": {
+    "what": "Tracks process lifecycle and resource limits for apps and extensions.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "launchservicesd": {
+    "what": "Launch Services: which app opens which file type and URL.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "iconservicesd": {
+    "what": "Renders and caches icons for Finder and the Dock.",
+    "normal": "Bursts when browsing folders with many custom icons.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "containermanagerd": {
+    "what": "Manages app sandbox containers.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "kernelmanagerd": {
+    "what": "Loads and manages kernel extensions.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "knowledge-agent": {
+    "what": "Learns usage patterns for Siri Suggestions and Screen Time.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "dasd": {
+    "what": "Duet Activity Scheduler: decides when background tasks run.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "avoid",
+    "check": "Nothing to do."
+  },
+  "suggestd": {
+    "what": "Extracts contacts, events and suggestions from Mail and Messages.",
+    "normal": "Bursts after mail syncs.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "assistantd": {
+    "what": "Siri.",
+    "normal": "Idle unless invoked.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "appstoreagent": {
+    "what": "App Store downloads and updates.",
+    "normal": "Busy during app updates.",
+    "worry": "Not a concern.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "akd": {
+    "what": "Apple ID authentication (AuthKit).",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "ContinuityCaptureAgent": {
+    "what": "Continuity Camera: use an iPhone as a webcam or scanner.",
+    "normal": "Idle unless a camera session is active.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "universalaccessd": {
+    "what": "Accessibility features (zoom, VoiceOver support).",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "Safari": {
+    "what": "Apple's web browser. Page content runs in separate WebContent processes.",
+    "normal": "Low CPU itself; the WebContent processes do the work.",
+    "worry": "Rarely the browser itself.",
+    "kill": "safe",
+    "check": "Close heavy tabs; look at com.apple.WebKit.WebContent."
+  },
+  "com.apple.WebKit.WebContent": {
+    "what": "A Safari (or any WebKit app) page renderer. One per site group.",
+    "normal": "Scales with the page: video, ads and web apps are heavy.",
+    "worry": "One at 100% for a long time is usually a runaway page script or a crypto-mining page.",
+    "kill": "safe",
+    "check": "Close the tab; Safari reloads it if needed."
+  },
+  "com.apple.WebKit.Networking": {
+    "what": "Network process for Safari and WebKit apps.",
+    "normal": "Busy during downloads.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Nothing to do."
+  },
+  "com.apple.WebKit.GPU": {
+    "what": "GPU process for Safari and WebKit apps.",
+    "normal": "Busy with video and WebGL.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Nothing to do."
+  },
+  "Google Chrome": {
+    "what": "Google's browser. The browser process coordinates many helper processes.",
+    "normal": "Low itself; helpers do the work.",
+    "worry": "Rarely the browser process itself.",
+    "kill": "safe",
+    "check": "Use Chrome's own Task Manager (Window menu) to find the heavy tab or extension."
+  },
+  "Google Chrome Helper (Renderer)": {
+    "what": "A Chrome tab or extension renderer. Sandboxed; one per site.",
+    "normal": "Scales with the page.",
+    "worry": "One at 100% for a long time: a runaway page or extension.",
+    "kill": "safe",
+    "check": "Chrome's Task Manager shows which tab it is; closing the tab is cleaner than killing."
+  },
+  "Google Chrome Helper (GPU)": {
+    "what": "Chrome's GPU process: compositing and video decode for every tab.",
+    "normal": "Busy with video and animations.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Chrome restarts it."
+  },
+  "Google Chrome Helper (Plugin)": {
+    "what": "A Chrome plugin or utility process.",
+    "normal": "Bursts.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Chrome restarts it."
+  },
+  "Electron": {
+    "what": "An app built with Electron (a bundled Chromium plus Node.js). The name means the app did not customise its helper names.",
+    "normal": "Electron apps use more memory than native ones.",
+    "worry": "Rarely a security concern; look at the publisher.",
+    "kill": "safe",
+    "check": "The inspector's app field names the bundle."
+  },
+  "Code Helper (Renderer)": {
+    "what": "A Visual Studio Code window or extension host renderer.",
+    "normal": "Scales with open editors and extensions.",
+    "worry": "A runaway extension shows here.",
+    "kill": "safe",
+    "check": "VS Code, Help, Process Explorer names the extension."
+  },
+  "Code Helper (Plugin)": {
+    "what": "A Visual Studio Code extension host.",
+    "normal": "Busy while extensions index or lint.",
+    "worry": "See Code Helper (Renderer).",
+    "kill": "safe",
+    "check": "See Code Helper (Renderer)."
+  },
+  "Slack Helper (Renderer)": {
+    "what": "A Slack window renderer (Slack is an Electron app).",
+    "normal": "Moderate memory.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Restart Slack."
+  },
+  "node": {
+    "what": "A Node.js runtime running some script or server. The parent process says which tool started it.",
+    "normal": "Depends entirely on the script.",
+    "worry": "A node process you did not start, from an unusual location, deserves a look.",
+    "kill": "safe",
+    "check": "Inspect the parent chain and the path; developer tools spawn many of these."
+  },
+  "bun": {
+    "what": "The Bun JavaScript runtime, running a script or a dev server.",
+    "normal": "Depends on the script.",
+    "worry": "Same as node.",
+    "kill": "safe",
+    "check": "Inspect the parent chain."
+  },
+  "python3": {
+    "what": "A Python interpreter running a script.",
+    "normal": "Depends on the script.",
+    "worry": "A Python process from Downloads or a temp folder that you did not start deserves a look.",
+    "kill": "safe",
+    "check": "Inspect the parent chain and the path."
+  },
+  "Terminal": {
+    "what": "Apple's terminal emulator.",
+    "normal": "Idle unless a command is running.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Nothing to do."
+  },
+  "iTerm2": {
+    "what": "A third-party terminal emulator.",
+    "normal": "Idle unless output is streaming.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Nothing to do."
+  },
+  "ssh-agent": {
+    "what": "Holds decrypted SSH keys for the session so you do not retype passphrases.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "sshd": {
+    "what": "The SSH server. Present when Remote Login is on.",
+    "normal": "Idle; one per connection.",
+    "worry": "If you did not enable Remote Login, turn it off.",
+    "kill": "restarts",
+    "check": "System Settings, General, Sharing, Remote Login."
+  },
+  "cupsd": {
+    "what": "The printing system.",
+    "normal": "Idle.",
+    "worry": "Rarely.",
+    "kill": "restarts",
+    "check": "Nothing to do."
+  },
+  "Dropbox": {
+    "what": "The Dropbox sync client.",
+    "normal": "Busy after file changes.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Pause syncing from its menu bar item."
+  },
+  "OneDrive": {
+    "what": "Microsoft's OneDrive sync client.",
+    "normal": "Busy after file changes.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Pause syncing from its menu bar item."
+  },
+  "Creative Cloud": {
+    "what": "Adobe's Creative Cloud desktop app and its background services.",
+    "normal": "Runs at login even when no Adobe app is open.",
+    "worry": "Not a security concern; a resource one.",
+    "kill": "safe",
+    "check": "Disable launch at login in its preferences."
+  },
+  "zoom.us": {
+    "what": "The Zoom client.",
+    "normal": "Heavy during calls.",
+    "worry": "Check its screen-recording and microphone permissions in the Privacy scan.",
+    "kill": "safe",
+    "check": "Quit when not in a call."
+  },
+  "Microsoft Teams": {
+    "what": "Microsoft Teams (an Electron or WebView app).",
+    "normal": "Heavy during calls and screen sharing.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Quit when not in a call."
+  },
+  "Docker": {
+    "what": "Docker Desktop, which runs a Linux virtual machine for containers.",
+    "normal": "The VM reserves memory even when idle.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "Quit Docker Desktop when not developing."
+  },
+  "com.docker.backend": {
+    "what": "Docker Desktop's backend service.",
+    "normal": "Idle unless containers run.",
+    "worry": "Rarely.",
+    "kill": "safe",
+    "check": "See Docker."
+  }
+}
