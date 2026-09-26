@@ -190,6 +190,28 @@ export interface Explanation {
   check: string | null;
 }
 
+export interface ProcessConnection {
+  proto: string;
+  local: string;
+  remote: string;
+  host: string | null;
+  state: string;
+}
+
+export interface ProcessDetail {
+  pid: number;
+  alive: boolean;
+  suspended: boolean;
+  nice: number;
+  threads: number | null;
+  energy: number | null;
+  openFiles: number | null;
+  connections: ProcessConnection[];
+  history: { ts: number; cpu: number; mem: number }[];
+  unavailable: Unavailable[];
+  timestamp: number;
+}
+
 export class ContractError extends Error {
   constructor(what: string) {
     super(`Malformed API response: ${what}`);
@@ -439,5 +461,36 @@ export function parseExplanation(raw: unknown): Explanation {
     worry: str(raw.worry) ? raw.worry : null,
     kill,
     check: str(raw.check) ? raw.check : null,
+  };
+}
+
+export function parseProcessDetail(raw: unknown): ProcessDetail {
+  if (!isObj(raw) || !num(raw.pid)) throw new ContractError("process detail is missing a pid");
+  const connections: ProcessConnection[] = arr(raw.connections)
+    ? raw.connections.filter(isObj).map((c) => ({
+        proto: str(c.proto) ? c.proto : "?",
+        local: str(c.local) ? c.local : "",
+        remote: str(c.remote) ? c.remote : "",
+        host: str(c.host) ? c.host : null,
+        state: str(c.state) ? c.state : "",
+      }))
+    : [];
+  return {
+    pid: raw.pid,
+    alive: bool(raw.alive) ? raw.alive : false,
+    suspended: bool(raw.suspended) ? raw.suspended : false,
+    nice: num(raw.nice) ? raw.nice : 0,
+    threads: num(raw.threads) ? raw.threads : null,
+    energy: num(raw.energy) ? raw.energy : null,
+    openFiles: num(raw.openFiles) ? raw.openFiles : null,
+    connections,
+    history: arr(raw.history)
+      ? raw.history
+          .filter(isObj)
+          .filter((h) => num(h.ts) && num(h.cpu) && num(h.mem))
+          .map((h) => ({ ts: h.ts as number, cpu: h.cpu as number, mem: h.mem as number }))
+      : [],
+    unavailable: unavailableList(raw.unavailable),
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
   };
 }

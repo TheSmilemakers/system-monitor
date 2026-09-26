@@ -77,6 +77,45 @@ interface HotEntry {
 const history: HistoryPoint[] = [];
 const hot = new Map<number, HotEntry>();
 
+/** Per-process trace for the inspector. Keyed by pid and approximate start time so PID reuse cannot splice histories. */
+export interface ProcessPoint {
+  ts: number;
+  cpu: number;
+  mem: number;
+}
+interface ProcessTrace {
+  /** Implied start time (now minus elapsed). Compared with a tolerance, not bucketed. */
+  startAt: number;
+  points: ProcessPoint[];
+}
+/** ps reports elapsed to the second and sampling has latency; anything closer than this is the same process. */
+const START_TOLERANCE_MS = 15_000;
+export const PROCESS_TRACE_POINTS = 60;
+const traces = new Map<number, ProcessTrace>();
+
+function recordProcessTraces(rows: readonly ProcessInfo[], now: number): void {
+  const seen = new Set<number>();
+  for (const p of rows) {
+    seen.add(p.pid);
+    const startAt = now - p.elapsed * 1000;
+    let trace = traces.get(p.pid);
+    if (!trace || Math.abs(trace.startAt - startAt) > START_TOLERANCE_MS) {
+      trace = { startAt, points: [] };
+      traces.set(p.pid, trace);
+    }
+    // Compare step to step, so second-granularity jitter never accumulates into a reset.
+    trace.startAt = startAt;
+    trace.points.push({ ts: now, cpu: p.cpu, mem: p.mem });
+    if (trace.points.length > PROCESS_TRACE_POINTS) trace.points.shift();
+  }
+  for (const pid of [...traces.keys()]) if (!seen.has(pid)) traces.delete(pid);
+}
+
+/** The recent CPU and memory trace for a pid, oldest first. Empty when unknown. */
+export function processHistory(pid: number): ProcessPoint[] {
+  return [...(traces.get(pid)?.points ?? [])];
+}
+
 export interface StatsSample {
   complete: boolean;
   unavailable: { check: string; reason: ProbeStatus }[];
@@ -274,6 +313,8 @@ export async function sample(): Promise<StatsSample> {
   }
   while (history.length > 0 && now - history[0].ts > HISTORY_WINDOW_MS) history.shift();
 
+  recordProcessTraces(allProcs, now);
+
   // --- Alerts by elapsed time and stable identity (M-03, M-17) ---
   const threshold = CPU_ALERT_THRESHOLD_PER_CORE * 100;
   const seen = new Set<number>();
@@ -371,4 +412,5 @@ function safeUsername(): string {
 export function __resetSampler(): void {
   history.length = 0;
   hot.clear();
+  traces.clear();
 }

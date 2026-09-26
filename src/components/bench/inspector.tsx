@@ -4,7 +4,6 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
-import { formatBytes, formatDuration } from "@/lib/format";
 import {
   appOf,
   childrenOf,
@@ -16,6 +15,7 @@ import {
 import type { ProcessAlert, ProcessInfo } from "@/lib/schemas";
 
 import { Explainer } from "./explainer";
+import { LiveDetail } from "./live-detail";
 import { TrustLamp } from "./trust-lamp";
 
 export interface InspectorProps {
@@ -153,20 +153,12 @@ export function Inspector({
             <Explainer proc={proc} />
 
             {/* Live behaviour */}
-            <section aria-labelledby="insp-now" className="mt-3">
-              <h3 id="insp-now" className="engraved">
-                Right now
+            <LiveDetail proc={proc} alert={alert ?? null} />
+            <section aria-labelledby="insp-tree" className="mt-3">
+              <h3 id="insp-tree" className="engraved">
+                Process tree
               </h3>
               <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-xs">
-                <dt className="text-muted-foreground">cpu</dt>
-                <dd className={proc.cpu > 50 ? "text-alarm" : proc.cpu > 20 ? "text-amber" : ""}>
-                  {proc.cpu.toFixed(1)}% of one core
-                  {alert && ` for ${formatDuration(alert.duration)}`}
-                </dd>
-                <dt className="text-muted-foreground">memory</dt>
-                <dd>
-                  {formatBytes(proc.rss)} resident, {proc.mem.toFixed(1)}% of RAM
-                </dd>
                 <dt className="text-muted-foreground">parent</dt>
                 <dd className="flex flex-wrap items-center gap-1">
                   {chain.length === 0 && <span className="text-muted-foreground">none listed</span>}

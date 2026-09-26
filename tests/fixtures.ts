@@ -197,6 +197,29 @@ export const MAN_FILEPROVIDERD = [
   "macOS                              11/07/17                              macOS",
 ].join("\n");
 
+export const TOP_PID_OUTPUT = [
+  "Processes: 612 total, 3 running, 609 sleeping, 3210 threads ",
+  "",
+  "PID  #TH  POWER %CPU MEM  ",
+  "648  11/6 4.1   72.0 197M ",
+].join("\n");
+
+/** `lsof -a -nP -i -p 648` */
+export const LSOF_PID_OUTPUT = [
+  "COMMAND     PID  USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME",
+  "fileprovi   648 rajan   23u  IPv4 0x1               0t0  TCP 192.168.1.5:50000->10.0.0.9:443 (ESTABLISHED)",
+  "fileprovi   648 rajan   24u  IPv6 0x2               0t0  TCP [::1]:50001->[::1]:8080 (CLOSE_WAIT)",
+  "fileprovi   648 rajan   25u  IPv4 0x3               0t0  UDP *:5353",
+].join("\n");
+
+/** `lsof -p 648`: header plus open files. */
+export const LSOF_FILES_OUTPUT = [
+  "COMMAND   PID  USER   FD   TYPE DEVICE SIZE/OFF NODE NAME",
+  "fileprovi 648 rajan  cwd    DIR   1,13      640    2 /",
+  "fileprovi 648 rajan  txt    REG   1,13   123456  100 /System/x/fileproviderd",
+  "fileprovi 648 rajan    0r   CHR    3,2      0t0  333 /dev/null",
+].join("\n");
+
 const ok = (value: string): Probe<string> => ({ status: "ok", value });
 
 /** Per-command fixture responses; override any of them per test. */
@@ -208,6 +231,7 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
     if (custom) return custom(args);
     switch (file) {
       case "top":
+        if (args.includes("-pid")) return ok(TOP_PID_OUTPUT);
         return ok(TOP_OUTPUT);
       case "vm_stat":
         return ok(VM_STAT_OUTPUT);
@@ -225,6 +249,7 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
       case "ps":
         // `ps -o user=,lstart= -p <pid>` is process identity; `-axwwo` is the
         // sampler's detailed list; `ps aux` is what the scans read.
+        if (args[0] === "-o" && args[1] === "stat=,nice=,ppid=") return ok("S     0     1");
         if (args[0] === "-o") return ok("rajan Mon Sep 22 07:00:00 2026");
         if (args[0] === "-axwwo") return ok(PS_DETAILED_OUTPUT);
         return ok(PS_OUTPUT);
@@ -235,7 +260,9 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
       case "whoami":
         return ok("rajan");
       case "lsof":
+        if (args[0] === "-a" && args.includes("-i")) return ok(LSOF_PID_OUTPUT);
         if (args[0] === "-a") return ok(LSOF_TXT_OUTPUT);
+        if (args[0] === "-p") return ok(LSOF_FILES_OUTPUT);
         return ok(LSOF_OUTPUT);
       case "ls": {
         const target = args[0] ?? "";
