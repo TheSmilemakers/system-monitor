@@ -37,7 +37,7 @@ export function NetworkView({
   }
 
   return (
-    <section aria-labelledby="network-heading" className="flex h-[640px] min-h-0 flex-col">
+    <section aria-labelledby="network-heading" className="flex h-full min-h-[420px] flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <h2 id="network-heading" className="engraved">
           Network
@@ -68,7 +68,7 @@ export function NetworkView({
         </span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto font-mono text-xs">
+      <div className="relative min-h-0 flex-1 overflow-auto font-mono text-xs">
         {data && data.unavailable.length > 0 && (
           <p role="status" className="border-b border-border px-3 py-1.5 text-amber">
             Could not check: {data.unavailable.map((u) => `${u.check} (${u.reason})`).join(", ")}

@@ -310,7 +310,9 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    // The bench fills the window: a tall window gives the workbench the room, a
+    // short one scrolls the main area rather than clipping it.
+    <div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
       <Header
         data={data}
         refreshInterval={refreshInterval}
@@ -389,9 +391,9 @@ export default function Dashboard() {
         </section>
       )}
 
-      <main className="grid flex-1 gap-3 p-3 sm:p-4 xl:grid-cols-[272px_minmax(0,1fr)]">
+      <main className="relative grid min-h-0 flex-1 gap-3 overflow-auto p-3 sm:p-4 xl:grid-cols-[272px_minmax(0,1fr)] xl:grid-rows-[minmax(0,1fr)]">
         <VitalsRail data={data} levels={levels} />
-        <div className="flex min-h-[560px] flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 xl:min-h-[560px]">
           <Scope
             history={data.history}
             alerts={shownAlerts}
@@ -422,7 +424,7 @@ export default function Dashboard() {
             onTabChange={openTab}
             panels={{
               processes: (
-                <div className="h-[640px]">
+                <div className="h-full min-h-[420px]">
                   <ProcessTable
                     processes={processes}
                     alerts={shownAlerts}

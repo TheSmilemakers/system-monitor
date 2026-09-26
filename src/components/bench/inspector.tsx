@@ -336,7 +336,7 @@ export function Inspector({
             </Button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto px-4 py-3 font-sans text-sm">
+          <div className="relative min-h-0 flex-1 overflow-auto px-4 py-3 font-sans text-sm">
             {/* Identity badge */}
             <section
               aria-labelledby="insp-identity"

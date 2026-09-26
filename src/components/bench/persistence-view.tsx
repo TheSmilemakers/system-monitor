@@ -26,7 +26,7 @@ export function PersistenceView({ active }: { active: boolean }) {
   const scopes: LaunchItem["scope"][] = ["user", "system-agent", "system-daemon"];
 
   return (
-    <section aria-labelledby="persistence-heading" className="flex h-[640px] min-h-0 flex-col">
+    <section aria-labelledby="persistence-heading" className="flex h-full min-h-[420px] flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <h2 id="persistence-heading" className="engraved">
           Persistence
@@ -39,7 +39,7 @@ export function PersistenceView({ active }: { active: boolean }) {
               : "loading"}
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto font-mono text-xs">
+      <div className="relative min-h-0 flex-1 overflow-auto font-mono text-xs">
         {data && data.unavailable.length > 0 && (
           <p role="status" className="border-b border-border px-3 py-1.5 text-amber">
             Could not check: {data.unavailable.map((u) => `${u.check} (${u.reason})`).join(", ")}

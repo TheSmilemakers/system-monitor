@@ -10,6 +10,7 @@
 #import <AppKit/AppKit.h>
 #import <UserNotifications/UserNotifications.h>
 #import <WebKit/WebKit.h>
+#include <signal.h>
 
 static NSInteger gPort = 3000;
 static NSString *gBase;
@@ -194,11 +195,36 @@ static BOOL SMNotificationsOn(void) {
   return [self startWithStatus:status];
 }
 
+/// Pids listening on our port: bun does not forward SIGTERM to next-server, so the listener is found and stopped directly.
+- (NSArray<NSNumber *> *)listeners {
+  NSTask *t = [NSTask new];
+  t.executableURL = [NSURL fileURLWithPath:@"/usr/sbin/lsof"];
+  t.arguments = @[ @"-nP", [NSString stringWithFormat:@"-iTCP:%ld", (long)gPort], @"-sTCP:LISTEN", @"-t" ];
+  NSPipe *pipe = [NSPipe pipe];
+  t.standardOutput = pipe;
+  t.standardError = [NSFileHandle fileHandleWithNullDevice];
+  if (![t launchAndReturnError:nil]) return @[];
+  NSData *data = [pipe.fileHandleForReading readDataToEndOfFile];
+  [t waitUntilExit];
+  NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+  NSMutableArray *pids = [NSMutableArray array];
+  for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
+    if (line.integerValue > 0) [pids addObject:@(line.integerValue)];
+  }
+  return pids;
+}
+
 - (void)stop {
-  if (!self.owned || !self.task.isRunning) return;
-  SMLog([NSString stringWithFormat:@"stopping server pid %d", self.task.processIdentifier]);
-  [self.task terminate];
-  [self.task waitUntilExit];
+  if (!self.owned) return;
+  if (self.task.isRunning) {
+    SMLog([NSString stringWithFormat:@"stopping server pid %d", self.task.processIdentifier]);
+    [self.task terminate];
+  }
+  for (NSNumber *pid in [self listeners]) {
+    SMLog([NSString stringWithFormat:@"stopping listener pid %@", pid]);
+    kill((pid_t)pid.intValue, SIGTERM);
+  }
+  for (int i = 0; i < 20 && [self reachable:1]; i++) [NSThread sleepForTimeInterval:0.25];
   self.task = nil;
   self.owned = NO;
 }
@@ -291,6 +317,9 @@ static BOOL SMNotificationsOn(void) {
 @property(nonatomic, strong) SMServer *server;
 @property(nonatomic, strong) SMAlarms *alarms;
 @property(nonatomic, strong) NSMenuItem *muteItem;
+@property(nonatomic, strong) NSTimer *loadWatchdog;
+@property(nonatomic, strong) NSTimer *retryTimer;
+@property(nonatomic) BOOL benchLoaded;
 @end
 
 @implementation SMAppDelegate
@@ -304,7 +333,27 @@ static BOOL SMNotificationsOn(void) {
 }
 
 - (void)loadBench {
+  [self.retryTimer invalidate];
+  self.retryTimer = nil;
+  self.benchLoaded = NO;
   [self.web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[gBase stringByAppendingString:@"/"]]]];
+  // A page that never arrives (the server rebuilding, or gone) must not leave
+  // a black window: after twenty seconds, say so and keep trying.
+  [self.loadWatchdog invalidate];
+  self.loadWatchdog = [NSTimer scheduledTimerWithTimeInterval:20 repeats:NO block:^(NSTimer *t) {
+    if (!self.benchLoaded) [self waitForServer:@"The server is taking a while to answer. Retrying."];
+  }];
+}
+
+/// Show a status and reload as soon as the server answers again.
+- (void)waitForServer:(NSString *)message {
+  [self showStatus:message];
+  [self.retryTimer invalidate];
+  self.retryTimer = [NSTimer scheduledTimerWithTimeInterval:3 repeats:YES block:^(NSTimer *t) {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+      if ([self.server reachable:2]) dispatch_async(dispatch_get_main_queue(), ^{ [self loadBench]; });
+    });
+  }];
 }
 
 - (void)buildMenu {
@@ -425,7 +474,18 @@ static BOOL SMNotificationsOn(void) {
 
 - (void)applicationDidBecomeActive:(NSNotification *)notification { [self.alarms clearUnread]; }
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return YES; }
-- (void)applicationWillTerminate:(NSNotification *)notification { [self.server stop]; }
+
+// Stop the server off the main thread, so the window closes at once and the
+// app is not left half quit while next-server winds down.
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
+  if (!self.server.owned) return NSTerminateNow;
+  [self.window orderOut:nil];
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    [self.server stop];
+    dispatch_async(dispatch_get_main_queue(), ^{ [NSApp replyToApplicationShouldTerminate:YES]; });
+  });
+  return NSTerminateLater;
+}
 
 // Links that ask for a new window (the report, the mini window) open in the browser.
 - (WKWebView *)webView:(WKWebView *)webView
@@ -457,9 +517,29 @@ static BOOL SMNotificationsOn(void) {
   [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse r) { completionHandler(); }];
 }
 
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+  if ([webView.URL.absoluteString hasPrefix:gBase]) {
+    self.benchLoaded = YES;
+    [self.loadWatchdog invalidate];
+    self.loadWatchdog = nil;
+  }
+}
+
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+  if (error.code == NSURLErrorCancelled) return;
   SMLog([NSString stringWithFormat:@"navigation failed: %@", error]);
-  [self showStatus:@"The server is not answering. Rebuild and Restart Server is in the Monitor menu."];
+  [self waitForServer:@"The server is not answering. Retrying; Rebuild and Restart Server is in the Monitor menu."];
+}
+
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+  if (error.code == NSURLErrorCancelled) return;
+  SMLog([NSString stringWithFormat:@"navigation failed after commit: %@", error]);
+  [self waitForServer:@"The page failed to load. Retrying."];
+}
+
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+  SMLog(@"web content process terminated; reloading");
+  [self loadBench];
 }
 
 // Show notifications even while the app is frontmost.

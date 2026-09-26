@@ -60,7 +60,7 @@ export function Workbench({ tab, onTabChange, panels }: WorkbenchProps) {
   };
 
   return (
-    <section className="flex min-h-0 flex-col rounded-md border border-border bg-card">
+    <section className="flex min-h-0 flex-1 flex-col rounded-md border border-border bg-card">
       <div
         role="tablist"
         aria-label="Workbench"
@@ -93,7 +93,7 @@ export function Workbench({ tab, onTabChange, panels }: WorkbenchProps) {
         role="tabpanel"
         id={`panel-${tab}`}
         aria-labelledby={`tab-${tab}`}
-        className="min-h-0 flex-1"
+        className="flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:flex-1"
       >
         {panels[tab]}
       </div>
@@ -158,7 +158,7 @@ export function ScanView({ state, killingPid, onKill, onClose }: ScanViewProps) 
               No findings from the checks that ran.
             </p>
           ) : (
-            <ScrollArea className="h-[400px]">
+            <ScrollArea className="h-[max(320px,calc(100vh-420px))]">
               <div className="space-y-2 pr-3">
                 {state.data.findings.map((f, i) => (
                   <article
@@ -246,7 +246,7 @@ export function CleanupView({ state, cleaningId, cleanedIds, onClean, onClose }:
               Nothing significant to clear.
             </p>
           ) : (
-            <ScrollArea className="h-[420px]">
+            <ScrollArea className="h-[max(320px,calc(100vh-420px))]">
               <div className="space-y-1.5 pr-3">
                 {state.data.items.map((item) => {
                   const cleaned = cleanedIds.has(item.id);
@@ -367,7 +367,7 @@ export function PrivacyView({ state, onClose }: PrivacyViewProps) {
       {state.data && (
         <div className="space-y-2">
           <UnavailableNotice items={state.data.unavailable} />
-          <ScrollArea className="h-[420px]">
+          <ScrollArea className="h-[max(320px,calc(100vh-420px))]">
             <div className="space-y-2 pr-3">
               {state.data.findings.length === 0 ? (
                 <p className="py-4 text-center font-mono text-sm text-muted-foreground">
