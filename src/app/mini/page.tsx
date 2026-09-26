@@ -49,7 +49,7 @@ export default function Mini() {
         </span>
       </header>
 
-      <div className="flex flex-wrap gap-x-3 gap-y-1" aria-label="Security posture">
+      <div role="group" className="flex flex-wrap gap-x-3 gap-y-1" aria-label="Security posture">
         {lamps.map((l) => (
           <span key={l.id} className="lamp" data-state={l.state} title={l.summary}>
             <span>{l.label}</span>

@@ -28,11 +28,15 @@ const BOOT_TIMEOUT_MS = 90_000;
 const SETTLE_TIMEOUT_MS = 30_000;
 const FAIL_IMPACTS = new Set(["serious", "critical"]);
 
+// The theme is pinned by query so the result does not depend on the OS
+// appearance of whichever machine runs this (CI runners are light).
 const PAGES = [
-  { name: "bench (night shift)", path: "/", ready: "[role=grid]" },
-  { name: "bench (daylight)", path: "/?theme=light", ready: "[role=grid]" },
-  { name: "mini window", path: "/mini", ready: "main" },
-  { name: "shift report", path: "/report", ready: "pre" },
+  { name: "bench, night shift", path: "/?theme=dark", ready: "[role=grid]", inspect: true },
+  { name: "bench, daylight", path: "/?theme=light", ready: "[role=grid]", inspect: true },
+  { name: "mini window, night shift", path: "/mini?theme=dark", ready: "main" },
+  { name: "mini window, daylight", path: "/mini?theme=light", ready: "main" },
+  { name: "shift report, night shift", path: "/report?theme=dark", ready: "pre" },
+  { name: "shift report, daylight", path: "/report?theme=light", ready: "pre" },
 ];
 
 const require = createRequire(import.meta.url);
@@ -229,16 +233,16 @@ async function checkPage(devtoolsPort, page) {
     await settle(cdp, page.ready);
     report(page.name, await runAxe(cdp));
 
-    if (page.path === "/") {
+    if (page.inspect) {
       // Open the inspector on the first process and check the drawer too.
       const opened = await cdp.eval(
         `(() => { const b = document.querySelector('[aria-label^="Inspect "]'); if (!b) return false; b.click(); return true; })()`,
       );
       if (opened) {
         await settle(cdp, "aside");
-        report("bench with the inspector open", await runAxe(cdp));
+        report(`${page.name}, inspector open`, await runAxe(cdp));
       } else {
-        record("bench with the inspector open", false, "no process row to inspect");
+        record(`${page.name}, inspector open`, false, "no process row to inspect");
       }
     }
   } finally {

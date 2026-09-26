@@ -130,9 +130,9 @@ bun run audit:prod  # bun audit --prod --audit-level=high
 bun run build       # next build
 bun run smoke       # boots the dev server and asserts every route responds
 bun run smoke:prod  # same against the production server
-bun run a11y        # axe-core in headless Chrome against the built app: the bench in
-                    # both themes with the inspector open, the mini window and the
-                    # report; serious or critical violations fail
+bun run a11y        # axe-core in headless Chrome against the built app: the bench
+                    # (inspector open too), the mini window and the report, each in
+                    # both themes; serious or critical violations fail
 bun run qa 0        # QA gate for a phase (0-4)
 bun run qa all      # every phase; exits non-zero unless each scores 10/10
 ```
