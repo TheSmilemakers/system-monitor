@@ -329,8 +329,54 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         return ok(SIP_ON);
       case "fdesetup":
         return ok(FILEVAULT_ON);
-      case "plutil":
-        return ok("5360");
+      case "plutil": {
+        const file = args[args.length - 1] ?? "";
+        if (!file.endsWith(".plist") || file.includes("XProtect")) return ok("5360");
+        if (file.includes("com.acme.helper"))
+          return ok(
+            JSON.stringify({
+              Label: "com.acme.helper",
+              ProgramArguments: ["/Users/rajan/Downloads/acme-helper", "--daemon"],
+              RunAtLoad: true,
+              KeepAlive: { SuccessfulExit: false },
+            }),
+          );
+        if (file.includes("com.docker.vmnetd"))
+          return ok(
+            JSON.stringify({
+              Label: "com.docker.vmnetd",
+              Program: "/Library/PrivilegedHelperTools/com.docker.vmnetd",
+              RunAtLoad: true,
+            }),
+          );
+        if (file.includes("com.example.updater")) {
+          // Dates cannot be expressed as JSON: plutil fails and the XML fallback runs.
+          if (args[1] === "json")
+            return { status: "failed", error: "invalid object in plist for destination format" };
+          return ok(
+            [
+              '<?xml version="1.0" encoding="UTF-8"?>',
+              '<plist version="1.0"><dict>',
+              "<key>Label</key><string>com.example.updater</string>",
+              "<key>ProgramArguments</key><array><string>/Applications/Example.app/Contents/MacOS/updater</string></array>",
+              "<key>RunAtLoad</key><true/>",
+              "<key>KeepAlive</key><true/>",
+              "</dict></plist>",
+            ].join("\n"),
+          );
+        }
+        return ok(
+          JSON.stringify({
+            Label:
+              file
+                .split("/")
+                .pop()
+                ?.replace(/\.plist$/, "") ?? "",
+          }),
+        );
+      }
+      case "profiles":
+        return ok("There are no configuration profiles installed for user 'rajan'");
       case "stat":
         // XProtect plist modified 10 days before the fixed test clock (2026-09-26T00:30:00Z).
         return ok(String(Math.floor(Date.parse("2026-09-16T00:30:00Z") / 1000)));

@@ -16,11 +16,22 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import type { PollState } from "@/hooks/use-polling";
 import type { CleanupItem, CleanupResult, PrivacyResult, ScanResult } from "@/lib/schemas";
 
-export type TabKey = "processes" | "timeline" | "scan" | "cleanup" | "privacy";
+export type TabKey =
+  | "processes"
+  | "timeline"
+  | "network"
+  | "persistence"
+  | "permissions"
+  | "scan"
+  | "cleanup"
+  | "privacy";
 
 export const TABS: { key: TabKey; label: string }[] = [
   { key: "processes", label: "Processes" },
   { key: "timeline", label: "Timeline" },
+  { key: "network", label: "Network" },
+  { key: "persistence", label: "Persistence" },
+  { key: "permissions", label: "Permissions" },
   { key: "scan", label: "Scan" },
   { key: "cleanup", label: "Cleanup" },
   { key: "privacy", label: "Privacy" },

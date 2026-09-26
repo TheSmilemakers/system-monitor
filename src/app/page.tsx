@@ -7,6 +7,9 @@ import { Annunciator } from "@/components/bench/annunciator";
 import { CommandPalette, type PaletteAction } from "@/components/bench/command-palette";
 import { Header } from "@/components/bench/header";
 import { Inspector } from "@/components/bench/inspector";
+import { NetworkView } from "@/components/bench/network-view";
+import { PermissionsView } from "@/components/bench/permissions-view";
+import { PersistenceView } from "@/components/bench/persistence-view";
 import { Scope } from "@/components/bench/scope";
 import { TimelineView } from "@/components/bench/timeline-view";
 import { computeLevels, VitalsRail } from "@/components/bench/vitals-rail";
@@ -175,6 +178,9 @@ export default function Dashboard() {
     () => [
       { id: "processes", label: "Show processes", run: () => openTab("processes") },
       { id: "timeline", label: "Show timeline", run: () => openTab("timeline") },
+      { id: "network", label: "Show network", run: () => openTab("network") },
+      { id: "persistence", label: "Show persistence", run: () => openTab("persistence") },
+      { id: "permissions", label: "Show permissions", run: () => openTab("permissions") },
       { id: "scan", label: "Run system scan", run: () => openTab("scan") },
       { id: "cleanup", label: "Open disk cleanup", run: () => openTab("cleanup") },
       { id: "privacy", label: "Run privacy scan", run: () => openTab("privacy") },
@@ -361,6 +367,9 @@ export default function Dashboard() {
                 />
               ),
               privacy: <PrivacyView state={privacy} onClose={() => setTab("processes")} />,
+              network: <NetworkView active={tab === "network"} onInspect={inspect} />,
+              persistence: <PersistenceView active={tab === "persistence"} />,
+              permissions: <PermissionsView active={tab === "permissions"} />,
               timeline: (
                 <TimelineView
                   active={tab === "timeline"}

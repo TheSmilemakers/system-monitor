@@ -230,6 +230,71 @@ export interface TimelineResult {
   timestamp: number;
 }
 
+export interface NetConnection {
+  process: string;
+  pid: number;
+  proto: string;
+  local: string;
+  remote: string;
+  host: string | null;
+  state: string;
+  tracker: { category: string; description: string; severity: string } | null;
+  appleTelemetry: boolean;
+  newSinceBaseline: boolean;
+}
+
+export interface Destination {
+  host: string;
+  connections: number;
+  processes: string[];
+  tracker: NetConnection["tracker"];
+  newSinceBaseline: boolean;
+}
+
+export interface NetworkReport {
+  connections: NetConnection[];
+  destinations: Destination[];
+  listeners: { port: number; name: string | null }[];
+  unavailable: Unavailable[];
+  timestamp: number;
+}
+
+export interface LaunchItem {
+  file: string;
+  scope: "user" | "system-agent" | "system-daemon";
+  label: string;
+  program: string | null;
+  runAtLoad: boolean;
+  keepAlive: boolean;
+  trust: TrustState;
+  publisher: string | null;
+  knownVendor: boolean;
+  newSinceBaseline: boolean;
+  changedSinceBaseline: boolean;
+}
+
+export interface PersistenceReport {
+  items: LaunchItem[];
+  profiles: string[] | null;
+  unavailable: Unavailable[];
+  timestamp: number;
+}
+
+export interface PermissionGrant {
+  service: string;
+  name: string;
+  highRisk: boolean;
+  clients: string[];
+}
+
+export interface PermissionsReport {
+  readable: boolean;
+  grants: PermissionGrant[];
+  highRiskGrants: number;
+  unavailable: Unavailable[];
+  timestamp: number;
+}
+
 export class ContractError extends Error {
   constructor(what: string) {
     super(`Malformed API response: ${what}`);
@@ -527,6 +592,100 @@ export function parseTimeline(raw: unknown): TimelineResult {
   return {
     events,
     baselineAt: num(raw.baselineAt) ? raw.baselineAt : null,
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+const strList = (v: unknown): string[] => (arr(v) ? v.filter(str) : []);
+
+function trackerOf(v: unknown): NetConnection["tracker"] {
+  if (!isObj(v) || !str(v.category) || !str(v.description)) return null;
+  return {
+    category: v.category,
+    description: v.description,
+    severity: str(v.severity) ? v.severity : "low",
+  };
+}
+
+export function parseNetwork(raw: unknown): NetworkReport {
+  if (!isObj(raw) || !arr(raw.connections))
+    throw new ContractError("network.connections must be an array");
+  const connections: NetConnection[] = raw.connections.filter(isObj).map((c) => ({
+    process: str(c.process) ? c.process : "?",
+    pid: num(c.pid) ? c.pid : 0,
+    proto: str(c.proto) ? c.proto : "?",
+    local: str(c.local) ? c.local : "",
+    remote: str(c.remote) ? c.remote : "",
+    host: str(c.host) ? c.host : null,
+    state: str(c.state) ? c.state : "",
+    tracker: trackerOf(c.tracker),
+    appleTelemetry: bool(c.appleTelemetry) ? c.appleTelemetry : false,
+    newSinceBaseline: bool(c.newSinceBaseline) ? c.newSinceBaseline : false,
+  }));
+  const destinations: Destination[] = arr(raw.destinations)
+    ? raw.destinations.filter(isObj).map((d) => ({
+        host: str(d.host) ? d.host : "",
+        connections: num(d.connections) ? d.connections : 0,
+        processes: strList(d.processes),
+        tracker: trackerOf(d.tracker),
+        newSinceBaseline: bool(d.newSinceBaseline) ? d.newSinceBaseline : false,
+      }))
+    : [];
+  const listeners = arr(raw.listeners)
+    ? raw.listeners
+        .filter(isObj)
+        .filter((l) => num(l.port))
+        .map((l) => ({ port: l.port as number, name: str(l.name) ? l.name : null }))
+    : [];
+  return {
+    connections,
+    destinations,
+    listeners,
+    unavailable: unavailableList(raw.unavailable),
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parsePersistence(raw: unknown): PersistenceReport {
+  if (!isObj(raw) || !arr(raw.items)) throw new ContractError("persistence.items must be an array");
+  const items: LaunchItem[] = raw.items.filter(isObj).map((i) => ({
+    file: str(i.file) ? i.file : "",
+    scope: i.scope === "user" || i.scope === "system-daemon" ? i.scope : "system-agent",
+    label: str(i.label) ? i.label : "",
+    program: str(i.program) ? i.program : null,
+    runAtLoad: bool(i.runAtLoad) ? i.runAtLoad : false,
+    keepAlive: bool(i.keepAlive) ? i.keepAlive : false,
+    trust:
+      str(i.trust) && (TRUST_STATES as readonly string[]).includes(i.trust)
+        ? (i.trust as TrustState)
+        : "unknown",
+    publisher: str(i.publisher) ? i.publisher : null,
+    knownVendor: bool(i.knownVendor) ? i.knownVendor : false,
+    newSinceBaseline: bool(i.newSinceBaseline) ? i.newSinceBaseline : false,
+    changedSinceBaseline: bool(i.changedSinceBaseline) ? i.changedSinceBaseline : false,
+  }));
+  return {
+    items,
+    profiles: arr(raw.profiles) ? raw.profiles.filter(str) : null,
+    unavailable: unavailableList(raw.unavailable),
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parsePermissions(raw: unknown): PermissionsReport {
+  if (!isObj(raw) || !arr(raw.grants))
+    throw new ContractError("permissions.grants must be an array");
+  const grants: PermissionGrant[] = raw.grants.filter(isObj).map((g) => ({
+    service: str(g.service) ? g.service : "",
+    name: str(g.name) ? g.name : "",
+    highRisk: bool(g.highRisk) ? g.highRisk : false,
+    clients: strList(g.clients),
+  }));
+  return {
+    readable: bool(raw.readable) ? raw.readable : false,
+    grants,
+    highRiskGrants: num(raw.highRiskGrants) ? raw.highRiskGrants : 0,
+    unavailable: unavailableList(raw.unavailable),
     timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
   };
 }
