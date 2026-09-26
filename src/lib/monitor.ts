@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  KNOWN_PORTS,
   parseKexts,
   parseListeningPorts,
   parseSystemExtensions,
@@ -377,15 +378,15 @@ export async function takeSnapshot(inputs: SnapshotInputs, now = Date.now()): Pr
         .filter((a): a is string => a !== null)
     : [];
   const resolved = await resolveAll(addrs);
+  // The local network is not a destination: link-local and private peers
+  // (AirDrop, Handoff, the router) come and go and say nothing about egress.
   const destinations = [
     ...new Set(
-      addrs.map((a) => {
+      addrs.flatMap((a) => {
         const r = resolved.get(a);
-        const host =
-          r && r.status === "resolved" && r.hostnames[0] !== "<local network>"
-            ? (r.hostnames[0] ?? a)
-            : a;
-        return canonicalDestination(host).key;
+        if (r && r.status === "resolved" && r.hostnames[0] === "<local network>") return [];
+        const host = r && r.status === "resolved" ? (r.hostnames[0] ?? a) : a;
+        return [canonicalDestination(host).key];
       }),
     ),
   ].sort();
@@ -535,7 +536,7 @@ export function diffSnapshots(
 
   for (const port of curr.ports) {
     if (port >= EPHEMERAL_PORT_MIN || seenBefore("ports", port)) continue;
-    const known = REMOTE_PORTS[port];
+    const known = REMOTE_PORTS[port] ?? KNOWN_PORTS[port];
     events.push({
       id: newId(ts),
       ts,

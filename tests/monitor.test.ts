@@ -245,9 +245,9 @@ describe("takeSnapshot and tick against fixtures", () => {
       T0,
     );
     expect(s.processes).toEqual({ "/usr/sbin/filecoordinationd": "apple" });
-    // 10.0.0.9 is private (local network) so the bare address is kept; 999.999.1.1
-    // does not resolve and folds to its /24, the way rotating addresses are compared.
-    expect(s.destinations).toEqual(["10.0.0.9", "999.999.1.0/24"]);
+    // 10.0.0.9 is the local network and is not a destination; 999.999.1.1 does not
+    // resolve and folds to its /24, the way rotating addresses are compared.
+    expect(s.destinations).toEqual(["999.999.1.0/24"]);
     expect(s.ports).toEqual([22, 39503]);
     expect(Object.keys(s.persistence).sort()).toEqual([
       "/Library/LaunchAgents/com.acme.helper.plist",
