@@ -3,14 +3,15 @@
 import { readdir, lstat, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  getCleanupTarget,
-  isAtOrUnder,
-  isWithinPermittedRoots,
-} from "@/lib/cleanup-targets";
+import { getCleanupTarget, isAtOrUnder, isWithinPermittedRoots } from "@/lib/cleanup-targets";
+import { executablePathFor } from "@/lib/exec-path";
 import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
-import { probe } from "@/lib/probe";
-import { processIdentity, sameIdentity } from "@/lib/process-identity";
+import { resetBaseline } from "@/lib/monitor";
+import { hasValue, probe } from "@/lib/probe";
+import { processIdentity, sameIdentity, type ProcessIdentity } from "@/lib/process-identity";
+import { watchKey } from "@/lib/process-model";
+import { lastProcesses } from "@/lib/sampler";
+import { addWatch, isWatched, removeWatch, WATCH_LIMIT } from "@/lib/watch";
 
 export interface ActionResult {
   success: boolean;
@@ -133,10 +134,49 @@ export async function cleanupItem(id: string): Promise<CleanupOutcome> {
   return { success: true, bytesFreed, itemsRemoved, itemsSkipped };
 }
 
+// ---------- process actions ----------
+
 const SIGTERM_GRACE_MS = 3_000;
 const POLL_MS = 100;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+type Owned = { ok: true; identity: ProcessIdentity } | { ok: false; result: ActionResult };
+
+/**
+ * The checks every process action shares: loopback caller, a sane pid, a
+ * live process, and ownership by the account this server runs as. The
+ * identity (pid plus start time) is returned so callers can re-verify it
+ * before and after signalling (M-01).
+ */
+async function ownedProcess(pid: number): Promise<Owned> {
+  try {
+    await assertLocalRequest();
+  } catch (e) {
+    return { ok: false, result: forbidden(e) ?? { success: false, error: "Request refused" } };
+  }
+  if (!Number.isInteger(pid) || pid <= 1) {
+    return { ok: false, result: { success: false, error: "Invalid or protected PID" } };
+  }
+  const identity = await processIdentity(pid);
+  if (!identity) return { ok: false, result: { success: false, error: "Process not found" } };
+
+  const whoami = await probe("whoami", []);
+  const currentUser = whoami.status === "ok" ? whoami.value : null;
+  if (!currentUser) {
+    return { ok: false, result: { success: false, error: "Could not determine the current user" } };
+  }
+  if (identity.user !== currentUser) {
+    return {
+      ok: false,
+      result: {
+        success: false,
+        error: `Process is owned by "${identity.user}", not "${currentUser}"`,
+      },
+    };
+  }
+  return { ok: true, identity };
+}
 
 /**
  * Terminate a user-owned process with real SIGTERM → SIGKILL escalation (M-01).
@@ -147,30 +187,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * before every signal so PID reuse cannot redirect the kill.
  */
 export async function killProcess(pid: number): Promise<ActionResult> {
-  try {
-    await assertLocalRequest();
-  } catch (e) {
-    return forbidden(e) ?? { success: false, error: "Request refused" };
+  const owned = await ownedProcess(pid);
+  if (!owned.ok) {
+    return owned.result.error === "Process not found" ? { success: true } : owned.result; // already gone
   }
-
-  if (!Number.isInteger(pid) || pid <= 1) {
-    return { success: false, error: "Invalid or protected PID" };
-  }
-
-  const identity = await processIdentity(pid);
-  if (!identity) return { success: true }; // already gone
-
-  const whoami = await probe("whoami", []);
-  const currentUser = whoami.status === "ok" ? whoami.value : null;
-  if (!currentUser) {
-    return { success: false, error: "Could not determine the current user" };
-  }
-  if (identity.user !== currentUser) {
-    return {
-      success: false,
-      error: `Process is owned by "${identity.user}", not "${currentUser}"`,
-    };
-  }
+  const { identity } = owned;
 
   try {
     process.kill(pid, "SIGTERM");
@@ -200,4 +221,187 @@ export async function killProcess(pid: number): Promise<ActionResult> {
   if (!after || !sameIdentity(identity, after)) return { success: true };
 
   return { success: false, error: "Process survived SIGKILL" };
+}
+
+async function processState(pid: number): Promise<string | null> {
+  const res = await probe("ps", ["-o", "stat=", "-p", String(pid)]);
+  return res.status === "ok" && res.value.trim().length > 0 ? res.value.trim() : null;
+}
+
+/**
+ * Pause a user-owned process (SIGSTOP). Reversible, unlike kill: the process
+ * keeps its memory and state and can be resumed. The stopped state is read
+ * back from ps so the result reports what happened, not what was sent.
+ */
+export async function suspendProcess(pid: number): Promise<ActionResult> {
+  const owned = await ownedProcess(pid);
+  if (!owned.ok) return owned.result;
+  try {
+    process.kill(pid, "SIGSTOP");
+  } catch {
+    return { success: false, error: "Could not signal the process" };
+  }
+  await sleep(POLL_MS);
+  const state = await processState(pid);
+  return state?.startsWith("T")
+    ? { success: true }
+    : { success: false, error: "Process did not stop" };
+}
+
+export async function resumeProcess(pid: number): Promise<ActionResult> {
+  const owned = await ownedProcess(pid);
+  if (!owned.ok) return owned.result;
+  try {
+    process.kill(pid, "SIGCONT");
+  } catch {
+    return { success: false, error: "Could not signal the process" };
+  }
+  await sleep(POLL_MS);
+  const state = await processState(pid);
+  return state && !state.startsWith("T")
+    ? { success: true }
+    : { success: false, error: "Process did not resume" };
+}
+
+/** Lower a user-owned process's priority. Without root, nice can only go up. */
+export async function reniceProcess(pid: number): Promise<ActionResult> {
+  const owned = await ownedProcess(pid);
+  if (!owned.ok) return owned.result;
+  const res = await probe("renice", ["10", "-p", String(pid)]);
+  return res.status === "ok"
+    ? { success: true }
+    : { success: false, error: `renice reported ${res.status}` };
+}
+
+export interface SampleOutcome extends ActionResult {
+  /** The head of the call-graph report, plain text. */
+  text?: string;
+}
+
+/**
+ * Sample a user-owned process for two seconds and return the head of the
+ * report. Output is text for the user to read; it is never executed.
+ */
+export async function sampleProcess(pid: number): Promise<SampleOutcome> {
+  const owned = await ownedProcess(pid);
+  if (!owned.ok) return owned.result;
+  const res = await probe("sample", [String(pid), "2", "-file", "/dev/stdout"], 20_000);
+  if (!hasValue(res)) return { success: false, error: `sample reported ${res.status}` };
+  const lines = res.value.split("\n");
+  const text = lines.slice(0, 80).join("\n").slice(0, 8_000);
+  return { success: true, text };
+}
+
+export interface AssessOutcome extends ActionResult {
+  verdict?: "accepted" | "rejected" | "unknown";
+  source?: string | null;
+  notarised?: boolean | null;
+  quarantined?: boolean;
+  path?: string;
+}
+
+/**
+ * Gatekeeper's verdict on the process's executable, plus whether it still
+ * carries the quarantine flag (downloaded, never assessed). Read-only.
+ */
+export async function assessProcess(pid: number): Promise<AssessOutcome> {
+  const owned = await ownedProcess(pid);
+  if (!owned.ok) return owned.result;
+  const exe = await executablePathFor(pid);
+  if (!exe) return { success: false, error: "Could not determine the executable path" };
+
+  const [assess, quarantine] = await Promise.all([
+    probe("spctl", ["--assess", "--type", "execute", "-v", exe]),
+    probe("xattr", ["-p", "com.apple.quarantine", exe]),
+  ]);
+  const out = hasValue(assess) ? assess.value : "";
+  const failedText = assess.status === "failed" ? assess.error : "";
+  const combined = `${out}\n${failedText}`;
+  const verdict: AssessOutcome["verdict"] = /: accepted/.test(combined)
+    ? "accepted"
+    : /: rejected/.test(combined)
+      ? "rejected"
+      : "unknown";
+  const sourceMatch = /source=([^\n]+)/.exec(combined);
+  const source = sourceMatch ? sourceMatch[1].trim() : null;
+  return {
+    success: true,
+    path: exe,
+    verdict,
+    source,
+    notarised: source ? /notarized/i.test(source) : null,
+    quarantined: quarantine.status === "ok" && quarantine.value.trim().length > 0,
+  };
+}
+
+/** Show the executable in Finder. */
+export async function revealProcess(pid: number): Promise<ActionResult> {
+  const owned = await ownedProcess(pid);
+  if (!owned.ok) return owned.result;
+  const exe = await executablePathFor(pid);
+  if (!exe) return { success: false, error: "Could not determine the executable path" };
+  const res = await probe("open", ["-R", exe]);
+  return res.status === "ok"
+    ? { success: true }
+    : { success: false, error: `open reported ${res.status}` };
+}
+
+/** Declare the current state normal: what is running and connected now becomes the baseline. */
+export async function resetMonitorBaseline(): Promise<ActionResult> {
+  try {
+    await assertLocalRequest();
+  } catch (e) {
+    return forbidden(e) ?? { success: false, error: "Request refused" };
+  }
+  try {
+    await resetBaseline({ processes: lastProcesses() });
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Could not reset the baseline",
+    };
+  }
+}
+
+export interface WatchOutcome extends ActionResult {
+  watching?: boolean;
+}
+
+/**
+ * Pin or unpin a process on the watch list. Watching is read-only, so any
+ * process may be watched, not only the user's own; the key is the
+ * executable path, which must already be resolved.
+ */
+export async function toggleWatch(pid: number): Promise<WatchOutcome> {
+  try {
+    await assertLocalRequest();
+  } catch (e) {
+    return forbidden(e) ?? { success: false, error: "Request refused" };
+  }
+  const proc = lastProcesses().find((p) => p.pid === pid);
+  if (!proc) return { success: false, error: "That process is not in the current sample" };
+  const key = watchKey(proc);
+  if (key === null) {
+    return { success: false, error: "The executable path is not known yet; try again shortly" };
+  }
+  if (await isWatched(key)) {
+    await removeWatch(key);
+    return { success: true, watching: false };
+  }
+  const r = await addWatch(key, proc.command);
+  return r.added
+    ? { success: true, watching: true }
+    : { success: false, error: `The watch list is full (${WATCH_LIMIT} entries)` };
+}
+
+/** Remove a watch by key, for processes that are no longer running. */
+export async function unwatch(key: string): Promise<ActionResult> {
+  try {
+    await assertLocalRequest();
+  } catch (e) {
+    return forbidden(e) ?? { success: false, error: "Request refused" };
+  }
+  const r = await removeWatch(key);
+  return r.removed ? { success: true } : { success: false, error: "That process is not watched" };
 }

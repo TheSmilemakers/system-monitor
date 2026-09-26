@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Revamp Delivery Report</title>
+<style>
+  :root { --ink: #1a1a1a; --muted: #5b6270; --line: #d9dde3; --bg: #fff; --panel: #f4f6f8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 40px; font: 11pt/1.5 -apple-system, "Helvetica Neue", Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  h1 { font-size: 22pt; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 15pt; margin: 28px 0 8px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); page-break-after: avoid; }
+  h3 { font-size: 12pt; margin: 18px 0 6px; page-break-after: avoid; }
+  p { margin: 6px 0; }
+  .meta { color: var(--muted); font-size: 9.5pt; margin-bottom: 18px; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 9.5pt; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 5px 7px; vertical-align: top; text-align: left; }
+  th { background: var(--panel); font-weight: 600; }
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 9pt; }
+  code { background: var(--panel); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--panel); padding: 10px 12px; border-radius: 4px; overflow-x: auto; white-space: pre; line-height: 1.35; page-break-inside: avoid; }
+  ul { margin: 4px 0 8px; padding-left: 20px; } li { margin: 2px 0; }
+  .summary { background: var(--panel); border-radius: 6px; padding: 12px 16px; margin: 12px 0 18px; }
+  figure { margin: 10px 0 14px; page-break-inside: avoid; }
+  figure img { width: 100%; border: 1px solid var(--line); border-radius: 4px; }
+  figcaption { font-size: 9pt; color: var(--muted); margin-top: 4px; }
+  .ok { color: #1e7f4f; font-weight: 600; } .no { color: #6b7280; font-weight: 600; } .warn { color: #b45309; font-weight: 600; }
+  @media print { body { padding: 0; } @page { size: A4; margin: 16mm 14mm; } }
+</style>
+</head>
+<body>
+
+<h1>Revamp Delivery Report</h1>
+<div class="meta">system-monitor · 26/09/2026 · prepared by Kai · branch <code>worktree-audit-localhost-rosetta</code>, draft PR #2; the strict index-access change is draft PR #3</div>
+
+<div class="summary">
+<p><strong>What this covers.</strong> Everything built since the localhost audit on 25/09/2026: the build pipeline hardening, the "Phosphor" bench revamp through all five design phases, the constant monitor, and the items a plan audit found still open. Twenty-eight commits, every one passing the full gate (<code>bun run check</code>) locally and in CI.</p>
+<p><strong>Where it stands.</strong> Every decision taken on 26/09/2026 is built, except three things declined with reasons (section 6). 377 tests across 38 files, an axe accessibility gate on every page in both themes, and a 543-entry process knowledge base. The app runs at <code>bun run dev</code> on native arm64; the Rosetta launcher fix from the audit still applies.</p>
+<p><strong>What needs you.</strong> Review and merge PR #2; then "Update branch" (or rebase) PR #3, whose only CI failure is GitHub's merge simulation. One observation outside the code: a Supabase MCP server on this Mac is launched with its access token on the command line, where every local process can read it (section 7).</p>
+</div>
+
+<h2>1. The bench today</h2>
+<figure>
+<img src="bench-night-2026-09-26.png" alt="The bench in night shift: posture lamps, vitals rail with seven-segment numerals, vector scope, tape counter, process table with filters and a Columns menu">
+<figcaption>Night shift, retro level 1 (the default). Posture annunciator, vitals rail, vector scope over five minutes, the tape counter, and the process workbench with trust lamps, filters and the Columns chooser.</figcaption>
+</figure>
+<figure>
+<img src="bench-daylight-2026-09-26.png" alt="The same bench in the daylight theme">
+<figcaption>Daylight. The signal colours were set by computed WCAG contrast after the accessibility gate's first CI run showed the runner's light appearance flipping the theme.</figcaption>
+</figure>
+
+<h2>2. Build pipeline (the build improvement plan)</h2>
+<table>
+<tr><th>Step</th><th>Delivered</th><th>Commit</th></tr>
+<tr><td>1. Gates that cannot lie</td><td>CI runs <code>bun run check</code>, the same command as local. Production audit hard-fails (it had been masked by <code>|| true</code> and hid two critical Next advisories; Next 16.3.6 closes them). QA gate fails closed offline. Smoke names the PID holding the Next dev lock. <code>predev</code> preflight refuses to start under Rosetta.</td><td>0605b59</td></tr>
+<tr><td>2. Reproducible CI</td><td>Bun pinned through <code>packageManager</code>, SHA-pinned actions, macos-15, concurrency, timeouts, cache, Dependabot.</td><td>0605b59</td></tr>
+<tr><td>3. Route and action tests</td><td>Route handlers, server actions and the sampler invoked as functions through seams; a per-file coverage floor of 80% lines and functions (Bun's threshold is per file, verified).</td><td>ebb1c3c</td></tr>
+<tr><td>4. DOM tests and axe</td><td>happy-dom plus Testing Library for hooks and components. <code>bun run a11y</code> runs axe-core in headless Chrome over the DevTools protocol (no Playwright download) against the bench with the inspector open, the mini window and the report, each in both themes; serious or critical violations fail. Its first run found five real defects.</td><td>ebb1c3c, 83281fe, 7a63de2</td></tr>
+<tr><td>5. Tooling and strictness</td><td>lefthook pre-commit, Prettier, knip (one unused dependency and one dead helper removed); three free TypeScript flags; <code>noUncheckedIndexedAccess</code> as its own stacked PR #3 (138 sites fixed, no non-null assertions).</td><td>624d0fd, PR #3</td></tr>
+</table>
+
+<h2>3. Design phases (the design revamp plan)</h2>
+<table>
+<tr><th>Phase</th><th>Delivered</th><th>Commits</th></tr>
+<tr><td>A. Foundation</td><td>Every process carries path, parent, age and code-signing identity (Apple, App Store, Developer ID, ad hoc, unsigned), resolved in the background and cached. Phosphor tokens, night shift and daylight, Chakra Petch and DSEG7 self-hosted, retro intensity 0/1/2. Bench layout: vitals rail with seven-segment numerals and LED meters, sortable and filterable trust table, inspector drawer on a spring, workbench tabs, ⌘K palette, keyboard driving.</td><td>3ee2cae, 80beb54, 01efb73</td></tr>
+<tr><td>B. Instruments</td><td>Eight posture lamps read from the system. Vector scope on canvas with afterglow and a network throughput trace. Sync-loss sweep on a new alert; tube-mode bloom at level 2.</td><td>04c9eda, b142673, 325d132</td></tr>
+<tr><td>C. Explainers</td><td>Three offline layers: a curated knowledge base (543 entries: macOS daemons and agents, developer tools, browsers, AI assistants and their MCP servers, common apps), Apple's man pages, heuristics. Live detail per process: trace, state, threads, energy, files, connections. Seven investigation actions, suspend before kill. Launch provenance: which launch item, launchd job or parent started it.</td><td>49e63e0, 7075b67, 2f78fc2, 855c8e5, 4eb0a8f</td></tr>
+<tr><td>D. Monitor</td><td>A baseline, drift rules and an append-only timeline; macOS notifications on alarms; Network, Persistence and Permissions views; the mini window. Surfaces: executables by path and trust, destinations, listening ports, launch items by hash, posture, accounts and admins, ~/.ssh, DNS, system extensions, privacy grants, web proxies and PAC, /etc/hosts, crontab and periodic scripts, kernel extensions. The Watch pin reports and notifies when a chosen executable starts or stops.</td><td>1e43c0c, 3655738, 2906f57, 4d07eb0, e084ae7</td></tr>
+<tr><td>E. Delight</td><td>The tape: rewind the scope and the table through the last hour, by range input or by dragging the scope's time axis and the counter, with a flick that coasts to a frame on a spring. The printout: a 78-column shift report at <code>/report</code>. Split-flap timeline rows. Inspector gestures: swipe to dismiss by velocity sign, drag the edge to resize, a three-stop bottom sheet on narrow windows.</td><td>fe40495, 9e1859a, 06c1b7e, e656bb3</td></tr>
+<tr><td>Table richness</td><td>Connection counts and new-since-baseline per process; networked and new filters; optional Parent, Publisher, Path and Conns columns behind a remembered chooser; Group by app with totals; captions on alerted rows; hints on every heading and vital; digits 1 to 8 pick a tab.</td><td>749d983, 856c3a0</td></tr>
+<tr><td>Transport</td><td>The sample is pushed over server-sent events at the chosen cadence; the bench reads it with a fetch-based hook that reconnects and shows the last reading as stale meanwhile. The slower panels still poll.</td><td>12e12f7</td></tr>
+</table>
+
+<h2>4. Numbers</h2>
+<table>
+<tr><th>Measure</th><th>Value</th></tr>
+<tr><td>Commits on the branch since the audit</td><td>28 (plus 1 on PR #3)</td></tr>
+<tr><td>Tests</td><td>377 in 38 files; every file above the 80% floor</td></tr>
+<tr><td>Source</td><td>about 12,900 lines of TypeScript under <code>src/</code></td></tr>
+<tr><td>Knowledge base</td><td>543 processes</td></tr>
+<tr><td>Full gate, local</td><td>typecheck, lint (zero warnings), format, knip, tests, production audit, build, smoke against next start, axe (8 of 8), smoke against next dev, QA phases 0–4 at 10/10</td></tr>
+<tr><td>CI</td><td>green on the feature branch; PR #3 fails only in the merge simulation (see section 6)</td></tr>
+</table>
+
+<h2>5. Deviations from the plan, all deliberate</h2>
+<ul>
+<li><strong>Store is JSON and JSONL</strong> under <code>~/Library/Application Support/system-monitor</code>, not SQLite: the server runs under Node, where Bun's SQLite is unavailable and Node's is version-gated, and the volumes are tiny. Writes are atomic.</li>
+<li><strong>Daylight signal colours</strong> are darker than the plan's swatches (lightness 0.42) so small amber, green and cyan text clears 4.5:1 on every surface; the ratios were computed, not eyeballed.</li>
+<li><strong>The grid role sits on the table</strong>, not the scroll container; axe showed a grid may only contain rows.</li>
+<li><strong>Remote-access lamp</strong> reads listening ports rather than <code>launchctl print</code>; same answer, one fewer privileged probe.</li>
+<li><strong>Report destinations</strong> carry a NEW column instead of a "new since baseline" note, to hold the 78-column width.</li>
+</ul>
+
+<h2>6. Not built, and why</h2>
+<table>
+<tr><th>Item</th><th>Reason</th><th>If wanted</th></tr>
+<tr><td>Login items as a persistence surface</td><td><code>sfltool dumpbtm</code> needs root on current macOS; the <code>osascript</code> route prompts for Automation control of System Events, which a background monitor should not trigger.</td><td>Run the server with Full Disk Access and read the BTM store, or accept the one-time prompt.</td></tr>
+<tr><td>Touch-only gestures: row swipe-to-reveal, tab panning, retro knob drag</td><td>A desktop instrument; the touch paths add per-row drag listeners to an 800-row table for little use.</td><td>Gate them on <code>(pointer: coarse)</code> and add a virtualised table first.</td></tr>
+<tr><td>Constellation graph</td><td>Marked optional in the decisions; nothing yet earns it a place over the process tree in the inspector.</td><td>A canvas force layout of parent edges and shared destinations, as a prototype tab.</td></tr>
+<tr><td>Radar sweep, sudo-log surface, model-backed explainer</td><td>Parked, skipped and deferred by the decision log.</td><td>—</td></tr>
+</table>
+<p class="warn">PR #3 and the merge simulation.</p>
+<p>PR #3 is stacked on the feature branch and carries the branch's later commits by cherry-pick (never a force-push). GitHub's pull-request CI checks a merge of head into base, and there the cherry-picked drift commit and the base's own copy both add <code>parseProxies</code>, so the merged tree declares it twice. The branch itself is green. After PR #2 lands, "Update branch" or a rebase resolves it in one hunk.</p>
+
+<h2>7. An observation outside the code</h2>
+<p>While listing running processes for the knowledge base, <code>ps</code> showed a Supabase MCP server started with <code>--access-token</code> and the token as a command-line argument. Anything running as your user can read another process's arguments, so a token passed that way is visible to every app and script on the machine. The knowledge base entry for that server now says so. Moving the token to an environment variable in the MCP configuration closes it; I did not open the configuration file myself.</p>
+
+<h2>8. How to run and review</h2>
+<pre>cd ~/projects/system-monitor
+git fetch && git checkout worktree-audit-localhost-rosetta
+bun install
+bun run check          # the whole gate, about five minutes
+bun run dev            # http://127.0.0.1:3000 (native arm64; the launcher fix applies)
+bun run a11y           # axe against the built app (run bun run build first)</pre>
+<p>In the bench: ⌘K opens the palette; j and k move, i inspects, x asks to terminate, / searches; 1 to 8 pick a tab; drag the scope's time axis to rewind; drag the inspector's header to the right to dismiss it, its left edge to resize.</p>
+
+<h2>9. Where things live</h2>
+<table>
+<tr><th>Thing</th><th>Path</th></tr>
+<tr><td>Plans</td><td><code>BUILD_IMPROVEMENT_PLAN_2026-09-25.{html,pdf}</code>, <code>docs/design/DESIGN_REVAMP_PLAN_2026-09-25.{html,pdf}</code></td></tr>
+<tr><td>This report</td><td><code>docs/REVAMP_DELIVERY_REPORT_2026-09-26.{html,pdf}</code></td></tr>
+<tr><td>Pull requests</td><td>#2 (the revamp), #3 (strict index access), both drafts against <code>main</code> and the feature branch respectively</td></tr>
+<tr><td>Monitor state</td><td><code>~/Library/Application Support/system-monitor</code> (baseline, events, watches; <code>SM_DATA_DIR</code> overrides)</td></tr>
+<tr><td>Gates</td><td><code>scripts/qa-gate.mjs</code>, <code>scripts/smoke.mjs</code>, <code>scripts/a11y.mjs</code>, <code>scripts/preflight.mjs</code></td></tr>
+</table>
+
+</body>
+</html>

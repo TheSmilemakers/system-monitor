@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      # Routine bumps arrive as one PR; security fixes still arrive on their own.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels: ["dependencies"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "ci"]

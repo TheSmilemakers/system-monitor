@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design Revamp Plan</title>
+<style>
+  :root {
+    --ink: #1a1a1a; --muted: #5b6270; --line: #d9dde3; --bg: #fff; --panel: #f4f6f8;
+    --tube: #050608; --bezel: #14171c; --green: #5dff9e; --amber: #ffb000; --cyan: #37d7ff; --magenta: #ff3d8a; --ivory: #e8e6df;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 40px; font: 11pt/1.5 -apple-system, "Helvetica Neue", Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  h1 { font-size: 22pt; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 15pt; margin: 28px 0 8px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); page-break-after: avoid; }
+  h3 { font-size: 12pt; margin: 18px 0 6px; page-break-after: avoid; }
+  h4 { font-size: 10.5pt; margin: 12px 0 4px; page-break-after: avoid; }
+  p { margin: 6px 0; }
+  .meta { color: var(--muted); font-size: 9.5pt; margin-bottom: 18px; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 9.5pt; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 5px 7px; vertical-align: top; text-align: left; }
+  th { background: var(--panel); font-weight: 600; }
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 9pt; }
+  code { background: var(--panel); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--panel); padding: 10px 12px; border-radius: 4px; overflow-x: auto; white-space: pre; line-height: 1.35; page-break-inside: avoid; }
+  pre.wire { font-size: 7.6pt; }
+  ul { margin: 4px 0 8px; padding-left: 20px; } li { margin: 2px 0; }
+  .summary { background: var(--panel); border-radius: 6px; padding: 12px 16px; margin: 12px 0 18px; }
+  .kv { color: var(--muted); font-size: 9.5pt; }
+  .swatches { display: flex; gap: 8px; margin: 8px 0 12px; flex-wrap: wrap; }
+  .sw { width: 92px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; font-size: 8.5pt; }
+  .sw div { height: 44px; } .sw span { display: block; padding: 3px 6px; }
+  .ship { color: #1e7f4f; font-weight: 600; } .proto { color: #1d5fa7; font-weight: 600; } .park { color: #6b7280; font-weight: 600; }
+  figure { margin: 10px 0 14px; page-break-inside: avoid; }
+  figure img { width: 100%; border: 1px solid var(--line); border-radius: 4px; }
+  figcaption { font-size: 9pt; color: var(--muted); margin-top: 4px; }
+  .mock { background: var(--tube); color: var(--ivory); border-radius: 6px; padding: 14px 16px; font-family: "SF Mono", Menlo, monospace; font-size: 8.5pt; line-height: 1.4; page-break-inside: avoid; }
+  .mock .g { color: var(--green); } .mock .a { color: var(--amber); } .mock .c { color: var(--cyan); } .mock .m { color: var(--magenta); } .mock .d { color: #6b7280; }
+  @media print { body { padding: 0; } @page { size: A4; margin: 16mm 14mm; } }
+</style>
+</head>
+<body>
+
+<h1>Design Revamp Plan</h1>
+<div class="meta">system-monitor · prepared 25/09/2026 by Kai · grounded in the current code (src/app/page.tsx, src/lib/schemas.ts, src/lib/probe.ts, the four API routes) and in probes verified on this Mac today</div>
+
+<div class="summary">
+<p><strong>The idea in one line.</strong> Turn the dashboard into a bench instrument: a 1980s test-bench and control-room language (vector scopes, LED bar meters, annunciator lamps, seven-segment readouts) built with 2026 craft (variable fonts, oklch colour, springs, translucent layers), where every process can explain itself and every change to the machine is logged and judged.</p>
+<p><strong>Three workstreams.</strong> Visual identity ("Phosphor"), richer information (a process inspector with explainers and investigation tools), and constant security monitoring (baseline, drift, posture lamps, a timeline). They ship in five phases over roughly six to eight weeks of one engineer's time; phase A is usable on its own.</p>
+<p><strong>The rule that keeps it tasteful.</strong> The 80s lives in the instruments, not the wallpaper. No scanlines, no boot screens, no glitch loops by default. One memorable element, the live vector scope, and everything around it quiet.</p>
+</div>
+
+<h2>1. Where the product is today</h2>
+<figure>
+<img src="current-ui-2026-09-25.png" alt="Current dashboard: dark background, amber accents, four stat cards with sparklines, a disk bar, and a CPU-sorted process table">
+<figcaption>The dashboard on 25/09/2026. Dark only, Geist Mono throughout, neutral grey tokens with status colours hard-coded per component.</figcaption>
+</figure>
+<p><strong>What works.</strong> The data pipeline is sound: argv-only probes with typed outcomes, a rolling five-minute history, sustained-load alerts, a loopback-only trust boundary, and safe kill and cleanup actions. The page already has a terminal temperament, so the direction below is an evolution, not a rewrite.</p>
+<p><strong>What holds it back.</strong></p>
+<ul>
+<li>It is a readout, not an instrument. Numbers are shown; nothing is explained. A process is a short name, a PID and three numbers. There is no way to ask "what is this and should I care?"</li>
+<li>Flat information architecture. Scan, Cleanup and Privacy are on-demand panels that appear mid-page; there is no place for history, events or posture.</li>
+<li>Collected but hidden: full command paths are stripped in <code>sampler.ts:94-97</code>; alert duration is shown only in the banner; connections are computed in the privacy scan but never joined to the process rows.</li>
+<li>Visual system is generic: neutral oklch greys, status colours as ad-hoc Tailwind classes, the tooltip and progress primitives unused, no light mode despite tokens for one.</li>
+<li>Nothing is remembered between runs. Every launch starts from zero, so "new since yesterday" cannot exist.</li>
+</ul>
+
+<h2>2. Design direction: "Phosphor"</h2>
+<h3>Concept</h3>
+<p>The machine is a signal and the app is the bench it is probed on. The reference world is Tektronix scopes, HP bench meters, airliner annunciator panels, the Vectrex, Trinitron menus and Braun's radio faces: instruments built to be read at a glance for eight hours a shift. That world is monochrome phosphor with one or two alarm colours, discrete segments rather than smooth gradients, and typography engraved on bezels. It maps unusually well onto a security monitor: posture is a row of lamps, load is a meter, events are a chart recorder.</p>
+<p>What we take from now: variable fonts with real tabular numerals, oklch colour so the phosphor hues survive light mode, translucent inspector layers, spring motion that can be interrupted, and accessibility as a floor.</p>
+
+<h3>Tokens</h3>
+<div class="swatches">
+<div class="sw"><div style="background:#050608"></div><span>Tube #050608</span></div>
+<div class="sw"><div style="background:#14171c"></div><span>Bezel #14171C</span></div>
+<div class="sw"><div style="background:#5dff9e"></div><span>Phosphor #5DFF9E</span></div>
+<div class="sw"><div style="background:#ffb000"></div><span>Amber #FFB000</span></div>
+<div class="sw"><div style="background:#37d7ff"></div><span>Cathode #37D7FF</span></div>
+<div class="sw"><div style="background:#ff3d8a"></div><span>Alarm #FF3D8A</span></div>
+<div class="sw"><div style="background:#e8e6df"></div><span>Ivory #E8E6DF</span></div>
+</div>
+<table>
+<tr><th>Role</th><th>Dark ("night shift")</th><th>Light ("daylight lab")</th><th>Rule</th></tr>
+<tr><td>Surface</td><td>Tube #050608, bezel #14171C, bezel edge 1px #262B33</td><td>Paper #ECEAE3, bezel #DEDBD2, edge #C9C5B8</td><td>Two surface levels only. Bezels are matte; no drop shadows.</td></tr>
+<tr><td>Signal</td><td>Phosphor #5DFF9E</td><td>Phosphor dark #1E8F5A</td><td>Traces, meters, "normal" states. The dominant hue.</td></tr>
+<tr><td>Caution</td><td>Amber #FFB000</td><td>Amber dark #B06E00</td><td>Warn thresholds, stale data, unknown publisher.</td></tr>
+<tr><td>Cool</td><td>Cathode #37D7FF</td><td>#0A7FA8</td><td>Network and selection. Never for status.</td></tr>
+<tr><td>Alarm</td><td>Alarm #FF3D8A</td><td>#C21C5E</td><td>Critical only. Appears at most in one place at a time.</td></tr>
+<tr><td>Text</td><td>Ivory #E8E6DF, muted #8B9098</td><td>Ink #1B1D22, muted #5B6270</td><td>Ivory not white: phosphor tubes were never white.</td></tr>
+</table>
+<p class="kv">Contrast: phosphor on tube 15.6:1, amber on tube 11.9:1, cathode on tube 12.8:1, alarm on tube 6.3:1, muted on tube 5.4:1. All pass AA for body text; alarm is reserved for large text and lamps.</p>
+
+<pre>@theme {
+  --color-tube: oklch(0.13 0.005 260);   --color-bezel: oklch(0.19 0.008 260);
+  --color-phosphor: oklch(0.90 0.20 155); --color-amber: oklch(0.80 0.17 75);
+  --color-cathode: oklch(0.83 0.13 220);  --color-alarm: oklch(0.68 0.24 355);
+  --color-ivory: oklch(0.92 0.008 90);    --color-muted: oklch(0.63 0.01 250);
+  --font-display: "Chakra Petch", "Geist Sans", system-ui;
+  --font-data: "Geist Mono", ui-monospace;
+  --font-segment: "DSEG7 Classic", "Geist Mono";
+}</pre>
+
+<h3>Typography</h3>
+<ul>
+<li><strong>Geist Mono</strong> stays for every data cell, with <code>font-variant-numeric: tabular-nums</code> and size-specific tracking (+0.01em at 11px, 0 at 13px).</li>
+<li><strong>Geist Sans</strong> for prose: explainers, recommendations, empty and error states. Line length under 70 characters in the inspector.</li>
+<li><strong>Chakra Petch</strong> (SIL licence, self-hosted, so the CSP stays <code>font-src 'self'</code>) for the few display moments: panel titles engraved on bezels and the four vital numerals. Squared terminals and a slight forward lean carry the era without cosplay.</li>
+<li><strong>DSEG7</strong> (SIL) seven-segment numerals appear only inside the four vitals and only at retro level 1 or higher. Segment fonts are hard to read at small sizes, so never below 28px and always with a text alternative.</li>
+</ul>
+
+<h3>Layout: the bench</h3>
+<pre class="wire">┌──────────────────────────────────────────────────────────────────────────────┐
+│ SYSTEM MONITOR  M1 Pro  up 18d   [FIREWALL][SIP][FILEVAULT][GATEKEEPER][XPROTECT][UPDATES] │
+├──────────────┬───────────────────────────────────────────────┬───────────────┤
+│  CPU  61.2   │                                               │               │
+│  ▮▮▮▮▮▮▯▯▯▯  │      ╱╲    ╱╲___╱╲      cpu  ───            │   INSPECTOR   │
+│  MEM  13/16  │  ___╱  ╲__╱        ╲___╱   mem  ───         │   (drawer)    │
+│  ▮▮▮▮▮▮▮▮▯▯  │  ─────────────────────────  net  ───        │  fileproviderd│
+│  SWAP 14.1   │  ······························ disk ···    │  PID 648      │
+│  ▮▮▮▮▮▮▮▮▮▮  │                                               │  Apple, signed│
+│  LOAD 10.5   │   vector scope, 5 min, four traces, afterglow │  "the daemon  │
+│  ▮▮▮▮▮▮▮▮▮▮  │                                               │   controlling │
+├──────────────┴───────────────────────────────────────────────┤   file        │
+│  Processes  Network  Persistence  Permissions  Timeline       │   provider…"  │
+│  PID  Process              Publisher   CPU  MEM  Conns  ▲     │  parent chain │
+│  648  fileproviderd  ◆     Apple       72.0 0.4   3           │  connections  │
+│  …                                                            │  actions      │
+└───────────────────────────────────────────────────────────────┴───────────────┘</pre>
+<ul>
+<li><strong>Annunciator strip</strong> across the top: security posture as labelled lamps. Lit phosphor = good, amber = attention, alarm = failing, dim = unknown or not yet checked. Click a lamp to open its explainer.</li>
+<li><strong>Vitals rail</strong> on the left: four instruments, each a numeral, a 10-segment LED meter, and the user/sys or wired/compressor breakdown beneath. Vertical stacking reads like a rack.</li>
+<li><strong>Vector scope</strong> in the centre: the one bold element. Four traces (CPU, memory, network bytes, disk activity) over five minutes on a shared phosphor grid, drawn on canvas with afterglow decay. Alerts are marked as ticks on the time axis, not as banners.</li>
+<li><strong>Workbench tabs</strong> below: Processes, Network, Persistence, Permissions, Timeline. The table is the workhorse and keeps most of the width.</li>
+<li><strong>Inspector</strong> on the right: a translucent drawer that slides from the right on a critically damped spring and dismisses the same way. On narrow screens it becomes a bottom sheet with 1:1 drag and momentum projection.</li>
+<li>Alignment: everything left-aligned to a 12-column grid; numerals right-aligned in cells. Mobile collapses to rail, scope at 120px, then tabs.</li>
+</ul>
+
+<h3>Motion and sound</h3>
+<ul>
+<li>Springs, damping 1.0, response 0.3 for the inspector and tab changes; damping 0.8 only after a flick on the mobile sheet. Reduced motion swaps every spring for a 150 ms cross-fade.</li>
+<li>Trace afterglow is the only ambient motion and it is data, not decoration. It stops when the tab is hidden (the polling hook already pauses).</li>
+<li>A critical alert triggers one 300 ms horizontal "sync loss" bar across the scope, once, never looping. An amber warning does not animate at all.</li>
+<li>Sound is off by default. Optional single tick on a new Timeline event, generated with the Web Audio API so nothing is fetched.</li>
+</ul>
+
+<h3>Retro intensity control</h3>
+<p>A three-position switch in the header, persisted locally, applied as <code>data-retro="0|1|2"</code> on the root so it is one attribute for CSS to key from.</p>
+<table>
+<tr><th>Level</th><th>What changes</th><th>Default for</th></tr>
+<tr><td>0 clean</td><td>Phosphor palette, Chakra Petch titles, smooth meters. No segment numerals, no bezels.</td><td>Light mode, reduced-motion users</td></tr>
+<tr><td>1 instrument</td><td>Adds seven-segment vitals, 10-segment LED meters, engraved bezel titles, annunciator lamp bevels.</td><td>Dark mode (the default)</td></tr>
+<tr><td>2 tube</td><td>Adds faint phosphor bloom on traces, 2% scanline texture, a 0.5° barrel on the scope only. Costs GPU; auto-disabled on battery under 20%.</td><td>Nobody by default; it is the fun setting</td></tr>
+</table>
+
+<h3>Self-critique against the generic defaults</h3>
+<p>The near-black-plus-one-acid-accent look is a known generated-page tell, and the current UI is already close to it. The plan avoids it in three ways: the base is ivory-on-tube with a warm cast rather than white on #111; the palette has a dominant signal hue plus three functional hues with strict jobs, not one accent used for everything; and the memorable element is a working instrument (the scope) rather than a gradient. The light "daylight lab" theme is a first-class mode so the product does not depend on darkness for its identity. No eyebrow labels, no middle-dot meta strings, no arrows on buttons.</p>
+
+<h2>3. Lateral brainstorm</h2>
+<p class="kv">Verdicts: <span class="ship">ship</span> = in the roadmap · <span class="proto">prototype</span> = build a spike, keep if it earns its place · <span class="park">park</span> = fun, but does not serve the job.</p>
+<table>
+<tr><th>Idea</th><th>What it is</th><th>Verdict</th><th>Why</th></tr>
+<tr><td>Vector scope hero</td><td>Four vitals as phosphor traces with afterglow on one grid, alert ticks on the axis</td><td class="ship">ship</td><td>Replaces four sparklines with one glanceable instrument; the identity piece</td></tr>
+<tr><td>Annunciator lamps</td><td>Security posture as a strip of labelled indicator lamps</td><td class="ship">ship</td><td>Airliner idiom, instantly readable, maps 1:1 to posture checks</td></tr>
+<tr><td>LED bar meters</td><td>Discrete 10-segment meters instead of smooth bars, warn/crit segments coloured</td><td class="ship">ship</td><td>Thresholds become visible steps; cheaper to read than a percentage</td></tr>
+<tr><td>Seven-segment vitals</td><td>DSEG numerals for CPU, memory, swap, load at retro ≥ 1</td><td class="ship">ship</td><td>The era in four places, with a plain-text fallback</td></tr>
+<tr><td>Tape scrubber</td><td>Cassette-counter style scrubber to rewind the scope and table to any point in the last hour</td><td class="proto">prototype</td><td>Real investigative value ("what was running when it spiked?"); needs a per-process history buffer</td></tr>
+<tr><td>Split-flap event log</td><td>Solari board treatment for the Timeline's newest rows</td><td class="proto">prototype</td><td>Delightful and legible; keep only if it stays under 200 ms per flip and honours reduced motion</td></tr>
+<tr><td>Radar sweep on poll</td><td>A faint sweep across the table each poll, new rows lit as it passes</td><td class="proto">prototype</td><td>Makes "new since last poll" visible without a badge; risk of noise</td></tr>
+<tr><td>Process constellation</td><td>Parent-child tree drawn as a vector graph (launchd at centre)</td><td class="proto">prototype</td><td>Shows helper sprawl and odd parents; needs to stay readable above 300 processes</td></tr>
+<tr><td>Command palette</td><td>⌘K palette: jump to PID, kill, inspect, switch view, toggle retro</td><td class="ship">ship</td><td>Keyboard-first operators; cheap with Base UI</td></tr>
+<tr><td>Keyboard bench</td><td>j/k rows, i inspect, x kill, / filter, 1–5 tabs</td><td class="ship">ship</td><td>Eight-hour-shift ergonomics</td></tr>
+<tr><td>Identity badge inspector</td><td>The inspector header styled as a magnetic-stripe ID card: publisher, signature, notarisation, quarantine</td><td class="ship">ship</td><td>Makes trust status the first thing seen, which is the security point</td></tr>
+<tr><td>Printout export</td><td>Export a shift report as a dot-matrix styled plain-text or PDF "printout"</td><td class="proto">prototype</td><td>Useful for sharing findings; the styling is free once the content exists</td></tr>
+<tr><td>Teletext explainer pages</td><td>Explainers rendered as Ceefax-style pages with page numbers</td><td class="park">park</td><td>Charming, but fixed-width block text hurts reading prose</td></tr>
+<tr><td>Boot POST screen</td><td>Memory-count style splash on first load</td><td class="park">park</td><td>Adds latency to the thing people open to check latency</td></tr>
+<tr><td>CRT mode</td><td>Scanlines, bloom, barrel distortion</td><td class="proto">prototype</td><td>Only as retro level 2, scope only, off by default</td></tr>
+<tr><td>Modem or Geiger sounds</td><td>Audio on connections or events</td><td class="park">park</td><td>Single optional tick is enough; anything more becomes alarm fatigue</td></tr>
+<tr><td>Winamp skins</td><td>User-installable themes</td><td class="park">park</td><td>Maintenance cost for no monitoring value</td></tr>
+<tr><td>Isometric process city</td><td>Processes as buildings sized by memory</td><td class="park">park</td><td>Pretty; answers no question the table cannot</td></tr>
+<tr><td>Lissajous CPU vs memory</td><td>XY scope figure</td><td class="park">park</td><td>Looks great, reads as nothing</td></tr>
+<tr><td>Night-shift auto-dim</td><td>Lower luminance after 22:00</td><td class="park">park</td><td>The OS already does this</td></tr>
+<tr><td>Menu-bar mini window</td><td>A compact <code>/mini</code> route sized for the existing LSUIElement launcher: lamps plus one meter</td><td class="ship">ship</td><td>This is what "constant monitor" means day to day</td></tr>
+<tr><td>Chart-recorder Timeline</td><td>Events drawn on a scrolling paper strip with pen colours per category</td><td class="ship">ship</td><td>The Timeline needs a visual anyway; the recorder metaphor is honest about time</td></tr>
+</table>
+
+<h2>4. Richer information: the inspector</h2>
+<p>Clicking any process row (or pressing <code>i</code>) opens the inspector. It answers four questions in order: who is this, what does it do, what is it doing right now, and what can I do about it.</p>
+
+<h3>4.1 Identity (who is this)</h3>
+<table>
+<tr><th>Field</th><th>Source</th><th>Cost measured today</th></tr>
+<tr><td>Full path, arguments (sanitised)</td><td>Already in <code>ps aux</code>; stop stripping it</td><td>none</td></tr>
+<tr><td>Parent chain to launchd, start time, elapsed</td><td>Add <code>ppid,lstart,etime</code> to the existing <code>ps</code> call</td><td>none</td></tr>
+<tr><td>Publisher, signed / ad-hoc / unsigned, notarised, bundle identifier, team ID</td><td><code>codesign -dv --verbose=2 &lt;path&gt;</code> and <code>spctl --assess</code>, cached per path with a 1 h TTL</td><td>40 ms per new path</td></tr>
+<tr><td>Quarantine flag (downloaded, never assessed)</td><td><code>xattr -p com.apple.quarantine</code></td><td>&lt; 5 ms</td></tr>
+<tr><td>How it was launched</td><td>Match the path against LaunchAgents/Daemons plists (already listed by the scan), login items via <code>sfltool</code>, otherwise "started by &lt;parent&gt;"</td><td>none beyond the scan</td></tr>
+<tr><td>Location class</td><td>Path bucket: /System, /usr, /Applications, ~/Applications, ~/Library, /tmp or ~/Downloads (flag)</td><td>none</td></tr>
+</table>
+<p>The identity header is the badge: name, publisher, and one of five trust states rendered as a lamp: <em>Apple system</em>, <em>Signed and notarised</em>, <em>Signed</em>, <em>Ad-hoc or unsigned</em>, <em>Unsigned and quarantined</em>. This state also becomes a column and a filter in the table.</p>
+
+<h3>4.2 Explainer (what does it do)</h3>
+<p>Three layers, all offline and instant, so the answer is always present:</p>
+<ol>
+<li><strong>Apple's own man pages.</strong> This Mac ships 838 section-8 pages. <code>man -w name</code> then the DESCRIPTION paragraph gives, for example, "fileproviderd is the daemon controlling the interaction between extensions and filecoordinationd." Zero maintenance and authoritative.</li>
+<li><strong>A curated knowledge base</strong> (JSON in the repo, around 250 entries at launch) for what man pages do not say: plain-English purpose, normal CPU and memory range, why it spikes, whether it is safe to kill, and what to check if it misbehaves. Entries for the usual suspects: mdworker_shared, WindowServer, kernel_task, bird, cloudd, trustd, nsurlsessiond, coreaudiod, corespotlightd, Electron helpers, browser renderers.</li>
+<li><strong>Heuristics</strong> for anything unknown: publisher and bundle from the signature, app name from the enclosing .app, Electron or Chromium helper detection from the argument list, "renderer of Google Chrome" from the parent chain, and a frank "No description available" with the path and publisher rather than a guess.</li>
+</ol>
+<p>An optional fourth layer, off by default and clearly labelled: ask a model. It sends only name, path, publisher and parent chain, never arguments or hostnames, and the response is cached. Given the product's privacy stance, this stays opt-in per session.</p>
+
+<h3>4.3 Live behaviour (what is it doing now)</h3>
+<ul>
+<li>Per-process CPU and memory trace over the last five minutes, keyed by PID plus start time so PID reuse cannot splice histories. Requires a ring buffer per process in the sampler; cost is negligible at 1,000 processes.</li>
+<li>Energy impact from <code>top -stats pid,power</code>, threads, and open file and socket counts from <code>lsof -p</code> on demand.</li>
+<li>Network: its connections joined from the machine-wide <code>lsof -iTCP</code> listing (75 ms for 122 connections today), each resolved, tracker-matched with the existing map, and marked "new destination" if not in the baseline.</li>
+<li>Alert context: how long it has been over threshold, in the row and in the inspector, not only in a banner.</li>
+</ul>
+
+<h3>4.4 Investigation actions (what can I do)</h3>
+<table>
+<tr><th>Action</th><th>Mechanism</th><th>Guardrail</th></tr>
+<tr><td>Reveal in Finder</td><td><code>open -R &lt;path&gt;</code></td><td>Path from the server's own process record, never from the client</td></tr>
+<tr><td>Suspend / resume</td><td>SIGSTOP / SIGCONT via the existing identity-checked signal path</td><td>Reversible alternative to kill; same ownership check</td></tr>
+<tr><td>Lower priority</td><td><code>renice +10 -p</code> on own processes</td><td>Only positive nice values without root</td></tr>
+<tr><td>Sample for 3 s</td><td><code>sample &lt;pid&gt; 3</code>, show the top of the call tree</td><td>Own processes only; output truncated and never executed</td></tr>
+<tr><td>Assess</td><td><code>spctl --assess --type execute</code> plus quarantine read</td><td>Read-only</td></tr>
+<tr><td>Watch</td><td>Pin the process; any change in signature, path, connections or parent raises a Timeline event</td><td>Persisted locally</td></tr>
+<tr><td>Kill</td><td>Existing action</td><td>Existing confirmation and identity re-check</td></tr>
+</table>
+
+<h3>4.5 Table upgrades</h3>
+<ul>
+<li>Sortable columns, a filter bar (mine / system / unknown publisher / networked / new since baseline), text search, and grouping of helper processes under their app with a disclosure.</li>
+<li>New columns: trust lamp, publisher, connections count, elapsed. Hidden by default: parent, path, energy.</li>
+<li>Row captions on alerted rows: "72% of one core for 7 m 41 s. Usually idle; indexing after a large file change is normal." pulled from the explainer.</li>
+<li>Tooltips wired to every metric (the primitive exists and is unused): what the number measures and the threshold that colours it.</li>
+</ul>
+
+<div class="mock">
+<span class="d">INSPECTOR</span><br>
+<span class="g">■</span> <strong>fileproviderd</strong> <span class="d">PID 648 · started 07:41 · 18 d</span><br>
+<span class="d">Apple system · Software Signing · /System/Library/…/fileproviderd</span><br><br>
+<span class="c">WHAT IT DOES</span><br>
+The daemon controlling the interaction between file provider extensions and filecoordinationd (iCloud Drive, Dropbox, OneDrive). Usually idle. Sustained CPU means a provider is enumerating or syncing a large tree.<br><br>
+<span class="c">RIGHT NOW</span>  <span class="a">72% for 7 m 41 s</span> · 62 MB · 3 connections · energy 4.1<br>
+<span class="d">parent</span> launchd (1) → fileproviderd (648)<br>
+<span class="d">talks to</span> p59-content.icloud.com <span class="g">Apple</span> · 17.248.x.x<br><br>
+<span class="c">WHAT TO CHECK</span>  Which provider is syncing: Finder → Locations. Pause the provider before killing this daemon; it restarts automatically.<br><br>
+<span class="d">[Reveal] [Suspend] [Sample 3 s] [Watch] [Kill]</span>
+</div>
+
+<h2>5. Constant security monitoring</h2>
+<p>The current product is a snapshot with two on-demand scans. A monitor needs memory: a baseline of what the machine normally looks like, a diff every cycle, and a place where changes accumulate. Everything below is read-only, argv-based, non-root, and stays on the machine.</p>
+
+<h3>5.1 Posture lamps (the annunciator)</h3>
+<table>
+<tr><th>Lamp</th><th>Probe (verified on this Mac)</th><th>Today's value here</th></tr>
+<tr><td>Firewall, stealth</td><td><code>/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate --getstealthmode</code></td><td class="park"><span style="color:#b06e00">Firewall off</span></td></tr>
+<tr><td>SIP</td><td><code>csrutil status</code></td><td>enabled</td></tr>
+<tr><td>Gatekeeper</td><td><code>spctl --status</code></td><td>enabled</td></tr>
+<tr><td>FileVault</td><td><code>fdesetup status</code></td><td>on</td></tr>
+<tr><td>XProtect version and date</td><td>Info.plist under <code>/Library/Apple/System/Library/CoreServices/XProtect.bundle</code></td><td>to read</td></tr>
+<tr><td>Updates pending</td><td><code>softwareupdate -l</code>, cached 6 h (slow, network)</td><td>to read</td></tr>
+<tr><td>Remote access</td><td><code>launchctl print system/com.openssh.sshd</code>, Screen Sharing agent presence</td><td>to read</td></tr>
+<tr><td>Secure boot, system extensions</td><td><code>systemextensionsctl list</code>, <code>kmutil showloaded</code></td><td>to read</td></tr>
+</table>
+
+<h3>5.2 Baseline and drift</h3>
+<p>On first run (and on demand) the app snapshots the machine to <code>~/Library/Application Support/system-monitor/baseline.json</code>. Every cycle computes a diff; every difference is an event with a severity from a small rule table.</p>
+<table>
+<tr><th>Surface</th><th>Snapshot from</th><th>Cycle</th><th>Example event</th></tr>
+<tr><td>Processes by path and publisher</td><td>existing <code>ps</code> plus signature cache</td><td>every poll</td><td>"New unsigned binary running from ~/Downloads" (alarm)</td></tr>
+<tr><td>Outbound destinations</td><td><code>lsof -iTCP</code> resolved</td><td>every poll</td><td>"Terminal opened a connection to a host never seen before" (amber)</td></tr>
+<tr><td>Listening ports</td><td><code>lsof -iTCP -sTCP:LISTEN</code></td><td>every poll</td><td>"Port 5900 now listening (screen sharing)" (amber)</td></tr>
+<tr><td>Persistence</td><td>LaunchAgents/Daemons plists hashed, login items via <code>sfltool</code>, cron and periodic, configuration profiles via <code>profiles list</code></td><td>60 s</td><td>"New launch agent com.example.updater by unknown publisher" (alarm)</td></tr>
+<tr><td>Permissions</td><td>existing TCC read (needs Full Disk Access)</td><td>60 s</td><td>"Screen recording granted to Zoom at 14:02" (info)</td></tr>
+<tr><td>Network configuration</td><td><code>scutil --dns</code>, <code>networksetup -getwebproxy</code>, /etc/hosts hash</td><td>60 s</td><td>"DNS resolver changed to 185.x.x.x" (alarm)</td></tr>
+<tr><td>Accounts</td><td><code>dscl . list /Users</code>, admin group members</td><td>5 min</td><td>"New admin user" (alarm)</td></tr>
+<tr><td>Credentials</td><td>~/.ssh key inventory and permissions, authorized_keys hash</td><td>5 min</td><td>"authorized_keys changed" (alarm)</td></tr>
+<tr><td>Extensions</td><td>system extensions, kernel extensions, browser extension folders</td><td>5 min</td><td>"New Chrome extension installed" (info)</td></tr>
+<tr><td>Privileged activity</td><td><code>log show --last 5m --predicate 'process == "sudo"'</code> where readable</td><td>5 min</td><td>"sudo used by rajan: 3 commands" (info)</td></tr>
+</table>
+
+<h3>5.3 The Timeline</h3>
+<p>A chart-recorder view: time runs downward, one pen colour per category, each event a row with severity, subject, what changed, and a one-line judgement from the rule table. Events link to the inspector. Filters mirror the table's. Retention is local and configurable (default 30 days, SQLite via Bun's built-in driver).</p>
+
+<h3>5.4 Notifications and the mini window</h3>
+<ul>
+<li>Alarm events post a macOS notification through <code>osascript</code>'s <code>display notification</code>, deduplicated per subject for 10 minutes.</li>
+<li>The existing Desktop launcher becomes useful all day: a <code>/mini</code> route, 320 × 120, showing the lamps, one meter, and the last event, opened in a small window. This is the constant-monitor surface.</li>
+<li>A daily shift report (the printout) summarises events, new software, new destinations, and posture changes.</li>
+</ul>
+
+<h3>5.5 Rules for staying trustworthy</h3>
+<ul>
+<li>Every probe stays argv-based with a timeout and a typed outcome; the annunciator shows "unknown" rather than guessing when a probe is denied.</li>
+<li>Nothing leaves the machine unless the user opts in per feature, and the opt-in states what is sent.</li>
+<li>Judgements are explainable: each event shows the rule that fired and how to silence it for that subject.</li>
+<li>Destructive actions keep confirmation; suspend is offered before kill.</li>
+<li>Alarm colour appears in one place at a time; two simultaneous alarms become a count on the lamp, not two red banners.</li>
+</ul>
+
+<h2>6. Information architecture</h2>
+<table>
+<tr><th>View</th><th>Purpose</th><th>Replaces</th></tr>
+<tr><td>Bench (default)</td><td>Lamps, vitals rail, scope, process table, inspector</td><td>Today's whole page</td></tr>
+<tr><td>Network</td><td>Connections by process and by destination, listening ports, tracker matches, new destinations</td><td>Privacy scan's connection findings</td></tr>
+<tr><td>Persistence</td><td>Launch agents and daemons, login items, profiles, extensions, each with publisher and "new since baseline"</td><td>Scan's startup findings, privacy scan's persistence check</td></tr>
+<tr><td>Permissions</td><td>TCC grants per app with change history</td><td>Privacy scan's permission list</td></tr>
+<tr><td>Timeline</td><td>Chart-recorder event log</td><td>Nothing today</td></tr>
+<tr><td>Cleanup</td><td>Existing catalogue with a file-list preview per item</td><td>Cleanup panel</td></tr>
+<tr><td>Mini</td><td>Compact always-on window</td><td>Nothing today</td></tr>
+</table>
+
+<h2>7. Roadmap</h2>
+<table>
+<tr><th>Phase</th><th>Scope</th><th>Depends on</th><th>Effort</th></tr>
+<tr><td>A. Foundation</td><td>Tokens and both themes, Chakra Petch and DSEG self-hosted, bench layout shell, tab views, inspector drawer with springs and reduced-motion path, sortable and filterable table, command palette and keys. Data: stop stripping paths; add ppid, lstart, etime to <code>ps</code>; signature cache; trust lamp column.</td><td>the build plan's step 1 (gates) so the refactor is safe</td><td>1.5 weeks</td></tr>
+<tr><td>B. Instruments</td><td>Vector scope on canvas with afterglow, LED meters, seven-segment vitals, annunciator strip with the eight posture probes, retro intensity switch.</td><td>A</td><td>1 week</td></tr>
+<tr><td>C. Explainers</td><td>Man-page reader, knowledge base (first 250 entries), heuristics, per-process history ring buffer, live behaviour panel, investigation actions (reveal, suspend, renice, sample, assess, watch).</td><td>A</td><td>1.5 weeks</td></tr>
+<tr><td>D. Monitor</td><td>Baseline store, drift rules, Timeline view with SQLite retention, Network and Persistence and Permissions views, notifications, mini window.</td><td>A, C (trust states feed the rules)</td><td>2 weeks</td></tr>
+<tr><td>E. Delight</td><td>Tape scrubber, split-flap Timeline rows, radar sweep, printout export, retro level 2, constellation graph spike. Keep what earns its place.</td><td>B, D</td><td>1 week, optional</td></tr>
+</table>
+<p>Each phase ends with the smoke and QA gates green and new tests for every new probe parser, in line with the build improvement plan. Phase A alone is a visible upgrade; phases B and C can run in parallel.</p>
+
+<h2>8. Technical notes</h2>
+<ul>
+<li><strong>Tailwind 4 tokens</strong> via <code>@theme</code>; components keep Base UI primitives. Status colours move out of components into the four functional hues.</li>
+<li><strong>Scope rendering</strong> on a 2D canvas: draw each frame over a translucent tube-coloured fill (alpha 0.12) to get afterglow for free; four paths, no per-point DOM. Text equivalent updated per poll for screen readers, as the sparklines do now.</li>
+<li><strong>Streaming</strong>: the Timeline uses a streamed route handler (server-sent events on the Node runtime) so events appear without a poll; the vitals keep the existing polling hook.</li>
+<li><strong>Persistence</strong>: baseline and events in SQLite under Application Support via <code>bun:sqlite</code>; nothing in the repo directory.</li>
+<li><strong>Caching</strong>: signature and man-page lookups keyed by path with TTLs; a bounded pool (the existing <code>pool.ts</code>) keeps concurrent <code>codesign</code> calls at four.</li>
+<li><strong>CSP</strong> unchanged: fonts self-hosted, no external requests, canvas needs nothing new.</li>
+<li><strong>Accessibility floor</strong>: every instrument has a text equivalent; colour is never the only channel (lamps carry labels and shapes); visible focus rings in phosphor; all three reduced-preference media queries honoured; contrast figures in section 2.</li>
+<li><strong>Testing</strong>: each new parser (codesign output, man DESCRIPTION, lsof rows, scutil dns, sfltool) gets fixture-based unit tests; the drift rules get table-driven tests; the inspector gets a happy-dom render test.</li>
+</ul>
+
+<h2>9. Interaction and motion specification</h2>
+<p>This section applies Apple's fluid-interface principles (Designing Fluid Interfaces, WWDC 2018; Principles of Great Design, WWDC 2026) to every interactive surface in the plan. The through-line: motion starts from the current on-screen value, inherits the user's velocity, projects momentum forward, and can be grabbed and reversed at any instant. Section 2's "Motion and sound" notes are superseded by the values here.</p>
+
+<h3>9.1 Response: nothing waits for release</h3>
+<ul>
+<li>Every row, lamp, tab and button changes state on <code>pointerdown</code>, not on <code>click</code>. Rows lift to the bezel tone in under 16 ms; the kill and suspend controls show their pressed state instantly and commit on release, with cancel-by-dragging-away.</li>
+<li>The polling hook's data arrives every 5 s, but interaction never waits on it. Opening the inspector renders the identity and explainer from cache immediately and fills live behaviour when the next sample lands, with a text "sampling" state rather than a spinner.</li>
+<li>Audit list for the build: no debounce on the filter box above 50 ms, no artificial delay before the command palette opens, no transition-end waits before the inspector accepts input.</li>
+</ul>
+
+<h3>9.2 Direct manipulation and interruptibility</h3>
+<table>
+<tr><th>Surface</th><th>Gesture</th><th>Behaviour</th></tr>
+<tr><td>Inspector (desktop, right drawer)</td><td>Drag the left edge to resize; swipe right to dismiss</td><td>Tracks the pointer 1:1 with the grab offset respected. Release velocity decides commit or reverse (sign, not position). Grabbing it mid-animation takes over from the live transform with no jump.</td></tr>
+<tr><td>Inspector (narrow, bottom sheet)</td><td>Drag anywhere on the header</td><td>Three detents: peek (identity only), half (identity and explainer), full. Momentum projection picks the detent nearest the projected rest point; rubber-banding above full and below peek.</td></tr>
+<tr><td>Tape scrubber</td><td>Drag the counter or the scope's time axis</td><td>1:1 with the pointer; on release, decelerates with the projection function and snaps to the nearest sample. Scope and table update continuously during the drag, never only at the end.</td></tr>
+<tr><td>Table rows</td><td>Swipe left (touch) reveals suspend and kill</td><td>Reveal tracks the finger; a fast flick past 40% commits open. Hysteresis of 10 px before the row commits to horizontal instead of scroll.</td></tr>
+<tr><td>Workbench tabs</td><td>Tap, or horizontal swipe on touch</td><td>Content pans with the finger between tabs; the indicator follows on a spring that re-targets from its current position if the user changes mind mid-swipe.</td></tr>
+<tr><td>Retro switch</td><td>Tap or drag the knob</td><td>Knob tracks the pointer; the theme attribute flips at the midpoint so the change lands on the same frame as the knob crossing it.</td></tr>
+</table>
+<p>Implementation rules: Pointer Events with <code>setPointerCapture</code>; keep the last four positions with timestamps for release velocity; decompose the sheet's drag into independent X and Y springs; never lock input during a transition; animate <code>transform</code> and <code>opacity</code> only, with <code>will-change</code> set on pointer-down and cleared on settle.</p>
+
+<h3>9.3 Springs: the values we ship</h3>
+<table>
+<tr><th>Interaction</th><th>Damping</th><th>Response</th><th>Note</th></tr>
+<tr><td>Inspector open and close (pointer, keyboard, palette)</td><td>1.0</td><td>0.30</td><td>No overshoot: nothing was thrown</td></tr>
+<tr><td>Inspector released after a drag or flick</td><td>0.80</td><td>0.30</td><td>Overshoot is earned by the gesture's momentum</td></tr>
+<tr><td>Bottom sheet detent change</td><td>0.80</td><td>0.30</td><td>Apple's sheet values</td></tr>
+<tr><td>Tab indicator, filter chips, lamp state change</td><td>1.0</td><td>0.25</td><td>Fast, calm</td></tr>
+<tr><td>Row reveal (suspend and kill)</td><td>1.0</td><td>0.25</td><td>Critically damped so the buttons land exactly</td></tr>
+<tr><td>LED meter segments, seven-segment digits</td><td>none</td><td>none</td><td>Instruments step; they do not ease. A meter that glides is lying about the sample</td></tr>
+<tr><td>Vector scope traces</td><td>none</td><td>none</td><td>Drawn per sample with afterglow; time is the animation</td></tr>
+<tr><td>Command palette</td><td>1.0</td><td>0.20</td><td>Materialises: blur radius and scale animate together from the trigger's origin</td></tr>
+</table>
+<pre>import { animate } from "motion";
+
+// Inspector opened by click or keyboard: critically damped
+animate(drawer, { x: 0 }, { type: "spring", bounce: 0, duration: 0.3 });
+
+// Inspector released after a flick: hand off the pointer's velocity, allow a little overshoot
+animate(drawer, { x: target },
+  { type: "spring", bounce: 0.2, duration: 0.3, velocity: releaseVelocityPx });
+
+// Where the flick will land, Apple's projection (deceleration 0.998 for scroll feel)
+const project = (v, d = 0.998) => (v / 1000) * d / (1 - d);
+const detent = nearestDetent(currentY + project(releaseVelocityPx));
+
+// Rubber-band beyond the top detent
+const band = (over, dim, k = 0.55) => (over * dim * k) / (dim + k * Math.abs(over));</pre>
+
+<h3>9.4 Spatial consistency</h3>
+<ul>
+<li>The inspector enters from the right and leaves to the right; the sheet enters from the bottom and leaves to the bottom. Never in from one edge and out another.</li>
+<li>Popovers and the command palette set <code>transform-origin</code> to the control that opened them; the lamp explainer grows out of its lamp.</li>
+<li>Reversible transitions mirror their easing: the tab pan uses inverse cubic-bézier control points in each direction.</li>
+<li>Where am I, where can I go, what is here, how do I get out: the workbench tabs answer the first two, the inspector header answers the third, and Escape or a swipe answers the fourth from every state. No view traps focus without a visible exit.</li>
+</ul>
+
+<h3>9.5 Materials and depth</h3>
+<ul>
+<li>Two materials only. <em>Bezel</em>: opaque, matte, for the vitals rail and table chrome. <em>Glass</em>: <code>backdrop-filter: blur(20px) saturate(160%)</code> over 72% tube colour, for the inspector, the command palette and the sticky header, with a 1 px lighter top edge so the material reads as catching light.</li>
+<li>Glass never stacks on glass: the palette opening over the inspector dims the inspector to bezel first.</li>
+<li>The inspector is a parallel panel, not a modal: no scrim, content stays live underneath, the table keeps updating. Kill confirmation is the one modal task and pairs a scrim with a slight push-back of the page.</li>
+<li>Vibrancy: text over glass uses ivory at full opacity and weight 500 with +0.01em tracking; colour lives on the solid bezel, never on the glass foreground.</li>
+<li>Scroll edges: the table's sticky header has no hard rule; a 12 px gradient mask fades content into the glass where they overlap.</li>
+</ul>
+
+<h3>9.6 Accessibility signals, baked into components</h3>
+<table>
+<tr><th>Signal</th><th>What changes</th></tr>
+<tr><td><code>prefers-reduced-motion: reduce</code></td><td>Every spring becomes a 150 ms cross-fade; scope afterglow becomes a plain line; the sync-loss bar becomes a static amber tick on the axis; radar sweep and split-flap are disabled. Detents still work by tap.</td></tr>
+<tr><td><code>prefers-reduced-transparency: reduce</code></td><td>Glass becomes opaque bezel; blur removed.</td></tr>
+<tr><td><code>prefers-contrast: more</code></td><td>Bezels gain a 1 px ivory border; muted text lifts to 7:1; lamps add a glyph (check, exclamation, cross) beside the label.</td></tr>
+<tr><td>Text size</td><td>All spacing in rem; the rail and inspector widths in ch and rem so a 200% text setting reflows rather than clips.</td></tr>
+<tr><td>Theme change</td><td>Dark to light eases over 300 ms to avoid the brightness jump.</td></tr>
+</table>
+
+<h3>9.7 Typography discipline</h3>
+<ul>
+<li>Tracking is size-specific: the four vital numerals at 40 px use -0.02em, panel titles at 15 px use 0, table data at 12 px uses +0.01em, captions at 11 px use +0.015em. One fixed value would be wrong somewhere.</li>
+<li>Leading tracks size inversely: 1.05 on numerals, 1.3 on table rows, 1.5 on explainer prose.</li>
+<li>Hierarchy from weight plus size plus leading as a set; emphasis by weight (500 against 400), never by colour alone.</li>
+<li>Geist stays the body face because it ships tabular figures and optical tuning; Chakra Petch and DSEG7 appear only where section 2 allows, and DSEG7 is never below 28 px.</li>
+</ul>
+
+<h3>9.8 Feedback and sound</h3>
+<ul>
+<li>Four kinds, each with one treatment: <em>status</em> (lamps, meters), <em>completion</em> ("Suspended fileproviderd" in the live region and on the row, same words as the button), <em>warning</em> (amber caption before the threshold is crossed, for example "swap rising"), <em>error</em> (inline on the control that failed, with the reason and the fix).</li>
+<li>The optional tick fires on the same frame as the Timeline row appears; if audio cannot be scheduled on that frame, it is dropped rather than late.</li>
+<li>Confirmation only for kill and cleanup, which are destructive and irreversible. Suspend, watch, renice and reveal act immediately and offer undo in the live region for 8 s.</li>
+</ul>
+
+<h3>9.9 The eight principles as decisions for this product</h3>
+<table>
+<tr><th>Principle</th><th>Decision</th></tr>
+<tr><td>Purpose</td><td>Parked ideas stay parked. The isometric city, skins and boot screen were cut because they spend attention without answering a question.</td></tr>
+<tr><td>Agency</td><td>Suspend before kill; undo on every non-destructive action; rules can be silenced per subject; the retro switch and light theme are the user's call.</td></tr>
+<tr><td>Responsibility</td><td>Nothing leaves the machine by default. The model explainer is opt-in per session and names exactly what it sends. Probes are read-only and argv-based. An unknown publisher is stated as unknown, not judged as malicious.</td></tr>
+<tr><td>Familiarity</td><td>Lamps, meters and scopes are metaphors people already read; kill and cleanup keep their names and positions from the current app; Escape closes, Cmd-K opens, as everywhere on the Mac.</td></tr>
+<tr><td>Flexibility</td><td>Desktop gets density and keyboard; touch gets the sheet and swipes; the mini window serves the glance case; columns can be hidden and reordered.</td></tr>
+<tr><td>Simplicity</td><td>The common path (glance at lamps and scope, find the hog, inspect, suspend) is one level deep. Network, Persistence and Permissions are a level down. Adding the explainer is the kind of context that simplifies.</td></tr>
+<tr><td>Craft</td><td>Every spring value, tracking value and colour role above is a defensible choice. Motion is reviewed frame by frame before phase B ships.</td></tr>
+<tr><td>Delight</td><td>The emotion is calm confidence: the machine is understood and under control. The instruments deliver it; nothing is added on top.</td></tr>
+</table>
+
+<h3>9.10 Process for phases A and B</h3>
+<ul>
+<li>Prototype the inspector drawer and sheet interactively before styling anything; an interactive demo sets the bar the final build must meet.</li>
+<li>Design the scope and its interactions together: the time axis is both the display and the scrubber, so neither is finished until both are.</li>
+<li>Review motion at quarter speed with fresh eyes; check every interruption path by grabbing mid-flight.</li>
+</ul>
+
+<h2>10. Decisions taken on 26/09/2026</h2>
+<p>Walked through with Rajan; every item below is settled and supersedes the corresponding option text above.</p>
+<table>
+<tr><th>Decision</th><th>Outcome</th></tr>
+<tr><td>Build pipeline sequencing</td><td>Gate fixes and CI hardening immediately; route and action tests before design phase A; DOM tests with phase A, axe with phase B; the three free TypeScript flags now, index-access as its own PR after A; pre-commit hooks, Prettier and knip: yes.</td></tr>
+<tr><td>Concept and hue</td><td>Phosphor bench instrument; phosphor green as the dominant signal hue, amber for caution, magenta for alarm, cyan for network and selection.</td></tr>
+<tr><td>Typography</td><td>Chakra Petch for titles and the four vitals, DSEG7 segments at retro level 1, Geist for everything else.</td></tr>
+<tr><td>Retro and themes</td><td>Level 1 is the default; the daylight theme ships in phase A; level 2 tube mode ships as a toggle, off by default.</td></tr>
+<tr><td>Hero and layout</td><td>Vector scope on canvas; bench layout on desktop.</td></tr>
+<tr><td>Extras</td><td>Tape scrubber, printout export and CRT toggle promoted to ship. Split-flap and constellation stay prototypes. Radar sweep parked. All other parked ideas stay parked.</td></tr>
+<tr><td>Explainers</td><td>Man pages, knowledge base and heuristics; Kai seeds the first 250 knowledge-base entries in phase C. The model-backed explainer is deferred until the offline layers show their gaps.</td></tr>
+<tr><td>Inspector actions</td><td>All seven, with suspend offered before kill and undo on every non-destructive action.</td></tr>
+<tr><td>Security monitor</td><td>All eight lamps, core four first. Drift surfaces staged: processes, destinations, ports and persistence, then accounts, credentials, extensions, sudo and DNS. SQLite storage, server-sent events, macOS notifications, mini window, 30-day retention.</td></tr>
+<tr><td>Delivery order</td><td>Build step 1, then A, then B and C in parallel, then D, then E.</td></tr>
+<tr><td>Immediate action</td><td>Build step 1 starts now on the current branch; a draft PR to main carries the README fix, both plans and the step 1 changes.</td></tr>
+</table>
+
+<h2>11. Open questions</h2>
+<ul>
+<li>Full Disk Access is needed for TCC and some log reads. The annunciator should show a "grant access" lamp rather than silently degrading.</li>
+<li>The knowledge base needs an owner and a contribution format; the man-page layer covers the long tail meanwhile.</li>
+<li>Whether the model-backed explainer is wanted at all, given the privacy positioning. The plan treats it as optional and off.</li>
+<li>Retention and disk budget for the Timeline on a machine that runs for months.</li>
+</ul>
+
+</body>
+</html>

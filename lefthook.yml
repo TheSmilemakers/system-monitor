@@ -1,0 +1,14 @@
+# Pre-commit guardrails. Fast checks on staged files only; the full gate
+# (`bun run check`) still runs in CI and before a release.
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{ts,tsx,mjs,js,json,css}"
+      run: bunx prettier --check {staged_files}
+    lint:
+      glob: "*.{ts,tsx,mjs}"
+      run: bunx eslint --max-warnings=0 {staged_files}
+    typecheck:
+      glob: "*.{ts,tsx}"
+      run: bun run typecheck

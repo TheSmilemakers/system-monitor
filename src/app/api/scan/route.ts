@@ -35,12 +35,28 @@ export interface Finding {
 const BLOAT_VENDORS: { vendor: string; patterns: string[]; reason: string }[] = [
   {
     vendor: "Adobe",
-    patterns: ["Adobe Creative Cloud", "AdobeIPCBroker", "Adobe Desktop Service", "com.adobe.acc", "CCLibrary", "Core Sync"],
+    patterns: [
+      "Adobe Creative Cloud",
+      "AdobeIPCBroker",
+      "Adobe Desktop Service",
+      "com.adobe.acc",
+      "CCLibrary",
+      "Core Sync",
+    ],
     reason: "Adobe background services run even when no Adobe app is open",
   },
   {
     vendor: "Third-party antivirus",
-    patterns: ["com.avast", "com.avg", "com.mcafee", "com.norton", "com.symantec", "com.trendmicro", "com.kaspersky", "com.malwarebytes"],
+    patterns: [
+      "com.avast",
+      "com.avg",
+      "com.mcafee",
+      "com.norton",
+      "com.symantec",
+      "com.trendmicro",
+      "com.kaspersky",
+      "com.malwarebytes",
+    ],
     reason: "macOS ships XProtect and Gatekeeper; third-party real-time scanning adds overhead",
   },
   {
@@ -131,7 +147,9 @@ async function scan() {
   });
 
   // 1. Browsers (claimed first so they cannot also be counted as Electron).
-  const runningBrowsers = CHROMIUM_BROWSERS.filter((b) => withPath.some((p) => p.fullPath.includes(b)));
+  const runningBrowsers = CHROMIUM_BROWSERS.filter((b) =>
+    withPath.some((p) => p.fullPath.includes(b)),
+  );
   const browserProcs = withPath.filter((p) => runningBrowsers.some((b) => p.fullPath.includes(b)));
   browserProcs.forEach((p) => claimed.add(p.pid));
 
@@ -223,8 +241,12 @@ async function scan() {
   // 5. Startup items.
   const launchItems = [
     ...(isOk(userAgentsRes) ? userAgentsRes.value.split("\n") : []),
-    ...(isOk(sysAgentsRes) ? sysAgentsRes.value.split("\n").filter((f) => !f.startsWith("com.apple.")) : []),
-    ...(isOk(daemonsRes) ? daemonsRes.value.split("\n").filter((f) => !f.startsWith("com.apple.")) : []),
+    ...(isOk(sysAgentsRes)
+      ? sysAgentsRes.value.split("\n").filter((f) => !f.startsWith("com.apple."))
+      : []),
+    ...(isOk(daemonsRes)
+      ? daemonsRes.value.split("\n").filter((f) => !f.startsWith("com.apple."))
+      : []),
   ].filter(Boolean);
 
   if (launchItems.length > 0) {
@@ -232,7 +254,10 @@ async function scan() {
       severity: launchItems.length > 10 ? "warning" : "info",
       category: "Startup Items",
       title: `${launchItems.length} third-party launch agents/daemons`,
-      detail: `Start automatically on boot: ${launchItems.slice(0, 8).map((f) => f.replace(".plist", "")).join(", ")}${launchItems.length > 8 ? ` +${launchItems.length - 8} more` : ""}.`,
+      detail: `Start automatically on boot: ${launchItems
+        .slice(0, 8)
+        .map((f) => f.replace(".plist", ""))
+        .join(", ")}${launchItems.length > 8 ? ` +${launchItems.length - 8} more` : ""}.`,
       processes: [],
       recommendation: "Remove agents for apps you no longer use.",
     });

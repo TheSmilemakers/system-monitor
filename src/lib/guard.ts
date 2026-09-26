@@ -37,11 +37,26 @@ export function isAllowedOrigin(origin: string | null | undefined): boolean {
   // Absent Origin is normal for same-origin GETs and direct navigation.
   if (!origin) return true;
   try {
-    return LOOPBACK_HOSTNAMES.has(`${new URL(origin).hostname}`) ||
-      LOOPBACK_HOSTNAMES.has(`[${new URL(origin).hostname}]`);
+    return (
+      LOOPBACK_HOSTNAMES.has(`${new URL(origin).hostname}`) ||
+      LOOPBACK_HOSTNAMES.has(`[${new URL(origin).hostname}]`)
+    );
   } catch {
     return false;
   }
+}
+
+type HeadersProvider = () => Promise<{ get(name: string): string | null }>;
+
+/**
+ * Test seam. `next/headers` only works inside a request scope; tests install a
+ * provider that returns the headers under test so route handlers and server
+ * actions can be invoked directly.
+ */
+let headersProvider: HeadersProvider | null = null;
+
+export function __setHeadersProvider(fn: HeadersProvider | null): void {
+  headersProvider = fn;
 }
 
 /**
@@ -49,7 +64,7 @@ export function isAllowedOrigin(origin: string | null | undefined): boolean {
  * Call at the top of every route handler and every server action.
  */
 export async function assertLocalRequest(): Promise<void> {
-  const h = await headers();
+  const h = headersProvider ? await headersProvider() : await headers();
 
   const host = h.get("host");
   if (!isLoopbackHost(host)) {

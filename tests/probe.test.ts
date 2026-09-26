@@ -29,7 +29,9 @@ describe("H-02 — probes are async and argv-based", () => {
 
   test("does not block the event loop", async () => {
     let ticked = false;
-    const timer = setTimeout(() => { ticked = true; }, 5);
+    const timer = setTimeout(() => {
+      ticked = true;
+    }, 5);
     await probe("sleep", ["0.15"]);
     clearTimeout(timer);
     // A synchronous exec would have starved the timer for the full sleep.
@@ -38,11 +40,7 @@ describe("H-02 — probes are async and argv-based", () => {
 
   test("runs concurrently rather than serialising", async () => {
     const start = Date.now();
-    await Promise.all([
-      probe("sleep", ["0.3"]),
-      probe("sleep", ["0.3"]),
-      probe("sleep", ["0.3"]),
-    ]);
+    await Promise.all([probe("sleep", ["0.3"]), probe("sleep", ["0.3"]), probe("sleep", ["0.3"])]);
     const elapsed = Date.now() - start;
     // Serialised would be ~900ms; concurrent should stay well under.
     expect(elapsed).toBeLessThan(700);
@@ -153,12 +151,19 @@ describe("H-02 — single-flight", () => {
     await singleFlight("k2", async () => 1);
     expect(inFlightCount()).toBe(0);
     let second = 0;
-    await singleFlight("k2", async () => { second = 1; return second; });
+    await singleFlight("k2", async () => {
+      second = 1;
+      return second;
+    });
     expect(second).toBe(1);
   });
 
   test("releases the slot even when the work throws", async () => {
-    await expect(singleFlight("k3", async () => { throw new Error("boom"); })).rejects.toThrow("boom");
+    await expect(
+      singleFlight("k3", async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
     expect(inFlightCount()).toBe(0);
   });
 });

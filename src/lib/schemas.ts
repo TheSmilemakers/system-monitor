@@ -19,15 +19,39 @@ export interface HistoryPoint {
   mem: number;
   swap: number;
   load: number;
+  net: number;
 }
+
+export type TrustState =
+  "apple" | "app-store" | "developer-id" | "adhoc" | "unsigned" | "unknown" | "pending";
+
+export const TRUST_STATES: readonly TrustState[] = [
+  "apple",
+  "app-store",
+  "developer-id",
+  "adhoc",
+  "unsigned",
+  "unknown",
+  "pending",
+];
 
 export interface ProcessInfo {
   user: string;
   pid: number;
+  ppid: number;
   cpu: number;
   mem: number;
   rss: number;
   command: string;
+  path: string;
+  elapsed: number;
+  trust: TrustState;
+  publisher: string | null;
+  bundleId: string | null;
+  /** Established TCP connections held right now (one lsof pass, cached briefly). */
+  connections: number;
+  /** The executable was not running when the baseline was recorded. */
+  newSinceBaseline: boolean;
 }
 
 export interface ProcessAlert {
@@ -35,6 +59,13 @@ export interface ProcessAlert {
   command: string;
   cpu: number;
   duration: number;
+}
+
+/** A pinned process: the monitor reports when it starts or stops. */
+export interface WatchEntry {
+  key: string;
+  name: string;
+  addedAt: number;
 }
 
 export interface SystemStats {
@@ -52,11 +83,14 @@ export interface SystemStats {
   };
   swap: { totalMB: number; usedMB: number; percent: number };
   disk: { total: string; used: string; available: string; percent: number };
+  net: { inKBps: number; outKBps: number };
   processes: { total: number; threads: number; top: ProcessInfo[] };
   uptime: string;
+  currentUser: string;
   battery: { percent: number; charging: boolean } | null;
   history: HistoryPoint[];
   alerts: ProcessAlert[];
+  watches: WatchEntry[];
   timestamp: number;
 }
 
@@ -138,6 +172,151 @@ const str = (v: unknown): v is string => typeof v === "string";
 const bool = (v: unknown): v is boolean => typeof v === "boolean";
 const arr = (v: unknown): v is unknown[] => Array.isArray(v);
 
+export type LampState = "ok" | "caution" | "alarm" | "info" | "off";
+
+export interface PostureLamp {
+  id: string;
+  label: string;
+  state: LampState;
+  summary: string;
+  detail: string;
+}
+
+export interface PostureReport {
+  complete: boolean;
+  unavailable: Unavailable[];
+  lamps: PostureLamp[];
+  timestamp: number;
+}
+
+const LAMP_STATES: readonly string[] = ["ok", "caution", "alarm", "info", "off"];
+
+export type KillAdvice = "safe" | "restarts" | "avoid";
+
+export interface Explanation {
+  source: "knowledge-base" | "man-page" | "heuristic";
+  what: string;
+  normal: string | null;
+  worry: string | null;
+  kill: KillAdvice | null;
+  check: string | null;
+}
+
+export interface ProcessConnection {
+  proto: string;
+  local: string;
+  remote: string;
+  host: string | null;
+  state: string;
+}
+
+export interface ProcessDetail {
+  pid: number;
+  alive: boolean;
+  suspended: boolean;
+  nice: number;
+  threads: number | null;
+  energy: number | null;
+  openFiles: number | null;
+  connections: ProcessConnection[];
+  history: { ts: number; cpu: number; mem: number }[];
+  /** How the process was launched: a launch item, launchd, its parent, or unknown. */
+  launch: {
+    kind: "launch-item" | "launchd" | "parent" | "unknown";
+    label: string | null;
+    scope: string | null;
+    file: string | null;
+  };
+  unavailable: Unavailable[];
+  timestamp: number;
+}
+
+export type EventSeverity = "info" | "caution" | "alarm";
+
+export interface TimelineEvent {
+  id: string;
+  ts: number;
+  severity: EventSeverity;
+  category: string;
+  subject: string;
+  message: string;
+  rule: string;
+}
+
+export interface TimelineResult {
+  events: TimelineEvent[];
+  baselineAt: number | null;
+  watches: WatchEntry[];
+  timestamp: number;
+}
+
+export interface NetConnection {
+  process: string;
+  pid: number;
+  proto: string;
+  local: string;
+  remote: string;
+  host: string | null;
+  state: string;
+  tracker: { category: string; description: string; severity: string } | null;
+  appleTelemetry: boolean;
+  newSinceBaseline: boolean;
+}
+
+export interface Destination {
+  host: string;
+  connections: number;
+  processes: string[];
+  tracker: NetConnection["tracker"];
+  newSinceBaseline: boolean;
+}
+
+export interface NetworkReport {
+  connections: NetConnection[];
+  destinations: Destination[];
+  listeners: { port: number; name: string | null }[];
+  unavailable: Unavailable[];
+  timestamp: number;
+}
+
+export interface LaunchItem {
+  file: string;
+  scope: "user" | "system-agent" | "system-daemon";
+  label: string;
+  program: string | null;
+  runAtLoad: boolean;
+  keepAlive: boolean;
+  trust: TrustState;
+  publisher: string | null;
+  knownVendor: boolean;
+  newSinceBaseline: boolean;
+  changedSinceBaseline: boolean;
+}
+
+export interface PersistenceReport {
+  items: LaunchItem[];
+  profiles: string[] | null;
+  unavailable: Unavailable[];
+  timestamp: number;
+}
+
+export interface PermissionGrant {
+  service: string;
+  name: string;
+  highRisk: boolean;
+  clients: string[];
+}
+
+export interface PermissionsReport {
+  readable: boolean;
+  grants: PermissionGrant[];
+  highRiskGrants: number;
+  /** Grant changes the monitor saw in the last week. */
+  recent: TimelineEvent[];
+  unavailable: Unavailable[];
+  timestamp: number;
+}
+
 export class ContractError extends Error {
   constructor(what: string) {
     super(`Malformed API response: ${what}`);
@@ -155,6 +334,63 @@ function unavailableList(v: unknown): Unavailable[] {
 
 // ---------- parsers ----------
 
+/** Validate a list of process rows; malformed fields fall back rather than throw. */
+export function processInfoList(v: unknown): ProcessInfo[] {
+  if (!arr(v)) return [];
+  return v.filter(isObj).map((p) => ({
+    user: str(p.user) ? p.user : "?",
+    pid: num(p.pid) ? p.pid : 0,
+    ppid: num(p.ppid) ? p.ppid : 0,
+    cpu: num(p.cpu) ? p.cpu : 0,
+    mem: num(p.mem) ? p.mem : 0,
+    rss: num(p.rss) ? p.rss : 0,
+    command: str(p.command) ? p.command : "unknown",
+    path: str(p.path) ? p.path : "",
+    elapsed: num(p.elapsed) ? p.elapsed : 0,
+    trust:
+      str(p.trust) && (TRUST_STATES as readonly string[]).includes(p.trust)
+        ? (p.trust as TrustState)
+        : "unknown",
+    publisher: str(p.publisher) ? p.publisher : null,
+    bundleId: str(p.bundleId) ? p.bundleId : null,
+    connections: num(p.connections) ? p.connections : 0,
+    newSinceBaseline: bool(p.newSinceBaseline) ? p.newSinceBaseline : false,
+  }));
+}
+
+export interface TapeIndex {
+  frames: number[];
+  timestamp: number;
+}
+
+export interface TapeFrame {
+  ts: number;
+  top: ProcessInfo[];
+  alerts: ProcessAlert[];
+}
+
+export function parseTapeIndex(raw: unknown): TapeIndex {
+  if (!isObj(raw) || !arr(raw.frames)) throw new ContractError("tape.frames must be an array");
+  return {
+    frames: raw.frames.filter(num).sort((a, b) => a - b),
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parseTapeFrame(raw: unknown): TapeFrame {
+  if (!isObj(raw) || !num(raw.ts)) throw new ContractError("tape frame is missing ts");
+  return {
+    ts: raw.ts,
+    top: processInfoList(raw.top),
+    alerts: arr(raw.alerts)
+      ? raw.alerts
+          .filter(isObj)
+          .filter((a) => num(a.pid) && num(a.cpu) && num(a.duration) && str(a.command))
+          .map((a) => a as unknown as ProcessAlert)
+      : [],
+  };
+}
+
 export function parseStats(raw: unknown): SystemStats {
   if (!isObj(raw)) throw new ContractError("stats is not an object");
   const { cpu, memory, swap, disk, processes } = raw;
@@ -167,16 +403,7 @@ export function parseStats(raw: unknown): SystemStats {
   const load = arr(raw.load) ? raw.load.filter(num) : [];
   if (load.length < 3) throw new ContractError("stats.load must hold three finite averages");
 
-  const top = arr(processes.top)
-    ? processes.top.filter(isObj).map((p) => ({
-        user: str(p.user) ? p.user : "?",
-        pid: num(p.pid) ? p.pid : 0,
-        cpu: num(p.cpu) ? p.cpu : 0,
-        mem: num(p.mem) ? p.mem : 0,
-        rss: num(p.rss) ? p.rss : 0,
-        command: str(p.command) ? p.command : "unknown",
-      }))
-    : [];
+  const top = processInfoList(processes.top);
 
   return {
     complete: bool(raw.complete) ? raw.complete : true,
@@ -209,21 +436,30 @@ export function parseStats(raw: unknown): SystemStats {
       available: str(disk.available) ? disk.available : "0",
       percent: num(disk.percent) ? disk.percent : 0,
     },
+    net: {
+      inKBps: isObj(raw.net) && num(raw.net.inKBps) ? raw.net.inKBps : 0,
+      outKBps: isObj(raw.net) && num(raw.net.outKBps) ? raw.net.outKBps : 0,
+    },
     processes: {
       total: num(processes.total) ? processes.total : 0,
       threads: num(processes.threads) ? processes.threads : 0,
       top,
     },
     uptime: str(raw.uptime) ? raw.uptime : "",
+    currentUser: str(raw.currentUser) ? raw.currentUser : "",
+    watches: watchList(raw.watches),
     battery:
       isObj(raw.battery) && num(raw.battery.percent)
-        ? { percent: raw.battery.percent, charging: bool(raw.battery.charging) ? raw.battery.charging : false }
+        ? {
+            percent: raw.battery.percent,
+            charging: bool(raw.battery.charging) ? raw.battery.charging : false,
+          }
         : null,
     history: arr(raw.history)
       ? raw.history
           .filter(isObj)
           .filter((h) => num(h.ts) && num(h.cpu) && num(h.mem) && num(h.swap) && num(h.load))
-          .map((h) => h as unknown as HistoryPoint)
+          .map((h) => ({ ...(h as unknown as HistoryPoint), net: num(h.net) ? h.net : 0 }))
       : [],
     alerts: arr(raw.alerts)
       ? raw.alerts
@@ -335,6 +571,218 @@ export function parsePrivacy(raw: unknown): PrivacyResult {
     resolvedCount: num(raw.resolvedCount) ? raw.resolvedCount : 0,
     unknownCount: num(raw.unknownCount) ? raw.unknownCount : 0,
     trackerCount: num(raw.trackerCount) ? raw.trackerCount : 0,
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parsePosture(raw: unknown): PostureReport {
+  if (!isObj(raw)) throw new ContractError("posture is not an object");
+  if (!arr(raw.lamps)) throw new ContractError("posture.lamps must be an array");
+  const lamps: PostureLamp[] = raw.lamps.filter(isObj).map((l) => ({
+    id: str(l.id) ? l.id : "unknown",
+    label: str(l.label) ? l.label : "Unknown",
+    state: str(l.state) && LAMP_STATES.includes(l.state) ? (l.state as LampState) : "off",
+    summary: str(l.summary) ? l.summary : "",
+    detail: str(l.detail) ? l.detail : "",
+  }));
+  return {
+    complete: bool(raw.complete) ? raw.complete : false,
+    unavailable: unavailableList(raw.unavailable),
+    lamps,
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parseExplanation(raw: unknown): Explanation {
+  if (!isObj(raw) || !str(raw.what)) throw new ContractError("explanation is missing `what`");
+  const source =
+    raw.source === "knowledge-base" || raw.source === "man-page" ? raw.source : "heuristic";
+  const kill =
+    raw.kill === "safe" || raw.kill === "restarts" || raw.kill === "avoid" ? raw.kill : null;
+  return {
+    source,
+    what: raw.what,
+    normal: str(raw.normal) ? raw.normal : null,
+    worry: str(raw.worry) ? raw.worry : null,
+    kill,
+    check: str(raw.check) ? raw.check : null,
+  };
+}
+
+export function parseProcessDetail(raw: unknown): ProcessDetail {
+  if (!isObj(raw) || !num(raw.pid)) throw new ContractError("process detail is missing a pid");
+  const connections: ProcessConnection[] = arr(raw.connections)
+    ? raw.connections.filter(isObj).map((c) => ({
+        proto: str(c.proto) ? c.proto : "?",
+        local: str(c.local) ? c.local : "",
+        remote: str(c.remote) ? c.remote : "",
+        host: str(c.host) ? c.host : null,
+        state: str(c.state) ? c.state : "",
+      }))
+    : [];
+  return {
+    pid: raw.pid,
+    alive: bool(raw.alive) ? raw.alive : false,
+    suspended: bool(raw.suspended) ? raw.suspended : false,
+    nice: num(raw.nice) ? raw.nice : 0,
+    threads: num(raw.threads) ? raw.threads : null,
+    energy: num(raw.energy) ? raw.energy : null,
+    openFiles: num(raw.openFiles) ? raw.openFiles : null,
+    connections,
+    history: arr(raw.history)
+      ? raw.history
+          .filter(isObj)
+          .filter((h) => num(h.ts) && num(h.cpu) && num(h.mem))
+          .map((h) => ({ ts: h.ts as number, cpu: h.cpu as number, mem: h.mem as number }))
+      : [],
+    launch: launchOf(raw.launch),
+    unavailable: unavailableList(raw.unavailable),
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+const LAUNCH_KINDS = ["launch-item", "launchd", "parent", "unknown"] as const;
+
+function launchOf(v: unknown): ProcessDetail["launch"] {
+  const kind =
+    isObj(v) && str(v.kind) && (LAUNCH_KINDS as readonly string[]).includes(v.kind)
+      ? (v.kind as ProcessDetail["launch"]["kind"])
+      : "unknown";
+  return {
+    kind,
+    label: isObj(v) && str(v.label) ? v.label : null,
+    scope: isObj(v) && str(v.scope) ? v.scope : null,
+    file: isObj(v) && str(v.file) ? v.file : null,
+  };
+}
+
+function watchList(v: unknown): WatchEntry[] {
+  if (!arr(v)) return [];
+  return v
+    .filter(isObj)
+    .filter((w) => str(w.key) && str(w.name))
+    .map((w) => ({
+      key: w.key as string,
+      name: w.name as string,
+      addedAt: num(w.addedAt) ? w.addedAt : 0,
+    }));
+}
+
+function eventList(v: unknown): TimelineEvent[] {
+  if (!arr(v)) return [];
+  return v.filter(isObj).map((e) => ({
+    id: str(e.id) ? e.id : "",
+    ts: num(e.ts) ? e.ts : 0,
+    severity: e.severity === "alarm" || e.severity === "caution" ? e.severity : "info",
+    category: str(e.category) ? e.category : "monitor",
+    subject: str(e.subject) ? e.subject : "",
+    message: str(e.message) ? e.message : "",
+    rule: str(e.rule) ? e.rule : "",
+  }));
+}
+
+export function parseTimeline(raw: unknown): TimelineResult {
+  if (!isObj(raw) || !arr(raw.events)) throw new ContractError("timeline.events must be an array");
+  const events = eventList(raw.events);
+  return {
+    events,
+    baselineAt: num(raw.baselineAt) ? raw.baselineAt : null,
+    watches: watchList(raw.watches),
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+const strList = (v: unknown): string[] => (arr(v) ? v.filter(str) : []);
+
+function trackerOf(v: unknown): NetConnection["tracker"] {
+  if (!isObj(v) || !str(v.category) || !str(v.description)) return null;
+  return {
+    category: v.category,
+    description: v.description,
+    severity: str(v.severity) ? v.severity : "low",
+  };
+}
+
+export function parseNetwork(raw: unknown): NetworkReport {
+  if (!isObj(raw) || !arr(raw.connections))
+    throw new ContractError("network.connections must be an array");
+  const connections: NetConnection[] = raw.connections.filter(isObj).map((c) => ({
+    process: str(c.process) ? c.process : "?",
+    pid: num(c.pid) ? c.pid : 0,
+    proto: str(c.proto) ? c.proto : "?",
+    local: str(c.local) ? c.local : "",
+    remote: str(c.remote) ? c.remote : "",
+    host: str(c.host) ? c.host : null,
+    state: str(c.state) ? c.state : "",
+    tracker: trackerOf(c.tracker),
+    appleTelemetry: bool(c.appleTelemetry) ? c.appleTelemetry : false,
+    newSinceBaseline: bool(c.newSinceBaseline) ? c.newSinceBaseline : false,
+  }));
+  const destinations: Destination[] = arr(raw.destinations)
+    ? raw.destinations.filter(isObj).map((d) => ({
+        host: str(d.host) ? d.host : "",
+        connections: num(d.connections) ? d.connections : 0,
+        processes: strList(d.processes),
+        tracker: trackerOf(d.tracker),
+        newSinceBaseline: bool(d.newSinceBaseline) ? d.newSinceBaseline : false,
+      }))
+    : [];
+  const listeners = arr(raw.listeners)
+    ? raw.listeners
+        .filter(isObj)
+        .filter((l) => num(l.port))
+        .map((l) => ({ port: l.port as number, name: str(l.name) ? l.name : null }))
+    : [];
+  return {
+    connections,
+    destinations,
+    listeners,
+    unavailable: unavailableList(raw.unavailable),
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parsePersistence(raw: unknown): PersistenceReport {
+  if (!isObj(raw) || !arr(raw.items)) throw new ContractError("persistence.items must be an array");
+  const items: LaunchItem[] = raw.items.filter(isObj).map((i) => ({
+    file: str(i.file) ? i.file : "",
+    scope: i.scope === "user" || i.scope === "system-daemon" ? i.scope : "system-agent",
+    label: str(i.label) ? i.label : "",
+    program: str(i.program) ? i.program : null,
+    runAtLoad: bool(i.runAtLoad) ? i.runAtLoad : false,
+    keepAlive: bool(i.keepAlive) ? i.keepAlive : false,
+    trust:
+      str(i.trust) && (TRUST_STATES as readonly string[]).includes(i.trust)
+        ? (i.trust as TrustState)
+        : "unknown",
+    publisher: str(i.publisher) ? i.publisher : null,
+    knownVendor: bool(i.knownVendor) ? i.knownVendor : false,
+    newSinceBaseline: bool(i.newSinceBaseline) ? i.newSinceBaseline : false,
+    changedSinceBaseline: bool(i.changedSinceBaseline) ? i.changedSinceBaseline : false,
+  }));
+  return {
+    items,
+    profiles: arr(raw.profiles) ? raw.profiles.filter(str) : null,
+    unavailable: unavailableList(raw.unavailable),
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parsePermissions(raw: unknown): PermissionsReport {
+  if (!isObj(raw) || !arr(raw.grants))
+    throw new ContractError("permissions.grants must be an array");
+  const grants: PermissionGrant[] = raw.grants.filter(isObj).map((g) => ({
+    service: str(g.service) ? g.service : "",
+    name: str(g.name) ? g.name : "",
+    highRisk: bool(g.highRisk) ? g.highRisk : false,
+    clients: strList(g.clients),
+  }));
+  return {
+    readable: bool(raw.readable) ? raw.readable : false,
+    grants,
+    highRiskGrants: num(raw.highRiskGrants) ? raw.highRiskGrants : 0,
+    recent: eventList(raw.recent),
+    unavailable: unavailableList(raw.unavailable),
     timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
   };
 }

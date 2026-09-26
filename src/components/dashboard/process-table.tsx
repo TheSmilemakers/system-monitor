@@ -1,113 +1,639 @@
 "use client";
 
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+
+import { TrustLamp } from "@/components/bench/trust-lamp";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { formatBytes, formatDuration } from "@/lib/format";
 import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { formatBytes } from "@/lib/format";
-import type { ProcessAlert, ProcessInfo } from "@/lib/schemas";
+  appOf,
+  FILTERS,
+  filterProcesses,
+  formatAge,
+  groupByApp,
+  sortProcesses,
+  type FilterKey,
+  type SortDir,
+  type SortKey,
+} from "@/lib/process-model";
+import type { ProcessAlert, ProcessInfo, WatchEntry } from "@/lib/schemas";
 
 export interface ProcessTableProps {
   processes: ProcessInfo[];
   alerts: ProcessAlert[];
+  currentUser: string | null;
   killingPid: number | null;
+  selectedPid: number | null;
+  /** Pinned processes; their rows carry a watch lamp. */
+  watches?: WatchEntry[];
+  onSelect: (pid: number | null) => void;
+  onInspect: (pid: number) => void;
   onKill: (pid: number, name: string) => void;
 }
 
-export function ProcessTable({ processes, alerts, killingPid, onKill }: ProcessTableProps) {
-  const alerted = new Set(alerts.map((a) => a.pid));
+interface Column {
+  key: SortKey;
+  label: string;
+  className: string;
+  srLabel?: string;
+  /** What the figure means, on the heading. */
+  hint?: string;
+  /** Off by default; the chooser turns it on and remembers per browser. */
+  optional?: boolean;
+}
+
+const COLUMNS: Column[] = [
+  {
+    key: "trust",
+    label: "Trust",
+    className: "w-24",
+    hint: "Code signature: Apple, App Store, a Developer ID, ad hoc (no identity), or unsigned.",
+  },
+  {
+    key: "pid",
+    label: "PID",
+    className: "w-16 text-right",
+    hint: "Process id; reused after exit.",
+  },
+  {
+    key: "ppid",
+    label: "Parent",
+    className: "w-16 text-right",
+    optional: true,
+    hint: "The process that started this one; 1 is launchd.",
+  },
+  { key: "command", label: "Process", className: "", hint: "Executable name; click to inspect." },
+  {
+    key: "publisher",
+    label: "Publisher",
+    className: "w-40",
+    optional: true,
+    hint: "Who signed the executable, from its certificate.",
+  },
+  {
+    key: "path",
+    label: "Path",
+    className: "max-w-[280px]",
+    optional: true,
+    hint: "Where the executable lives on disk.",
+  },
+  { key: "user", label: "User", className: "w-24", hint: "The account the process runs as." },
+  {
+    key: "cpu",
+    label: "CPU",
+    className: "w-16 text-right",
+    srLabel: "CPU percent of one core",
+    hint: "Percent of one core over the last sample: 100 is one core fully busy, more means several.",
+  },
+  {
+    key: "mem",
+    label: "Mem",
+    className: "w-16 text-right",
+    srLabel: "memory percent",
+    hint: "Share of physical memory this process holds resident.",
+  },
+  {
+    key: "rss",
+    label: "RSS",
+    className: "w-20 text-right",
+    srLabel: "resident memory",
+    hint: "Resident set size: memory actually in RAM for this process (shared pages counted for each).",
+  },
+  {
+    key: "connections",
+    label: "Conns",
+    className: "w-16 text-right",
+    srLabel: "established TCP connections",
+    optional: true,
+    hint: "Established TCP connections held right now, from one lsof pass every half minute.",
+  },
+  {
+    key: "elapsed",
+    label: "Age",
+    className: "w-20 text-right",
+    hint: "Time since the process started.",
+  },
+];
+
+const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  cpu: "desc",
+  mem: "desc",
+  rss: "desc",
+  elapsed: "desc",
+  connections: "desc",
+  pid: "asc",
+  ppid: "asc",
+  command: "asc",
+  publisher: "asc",
+  path: "asc",
+  user: "asc",
+  trust: "asc",
+};
+
+// The column choice is a per-viewer convenience kept in localStorage and read
+// through an external store: the server snapshot is empty, the client reads the
+// stored value after hydration, and a toggle notifies every table on the page.
+// When storage is unavailable the value lives in memory for the session.
+const COLUMNS_KEY = "sm:columns";
+const OPTIONAL_KEYS = COLUMNS.filter((c) => c.optional).map((c) => c.key);
+const listeners = new Set<() => void>();
+let memoryValue = "";
+
+function subscribeColumns(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
+
+function readColumnsRaw(): string {
+  try {
+    return localStorage.getItem(COLUMNS_KEY) ?? memoryValue;
+  } catch {
+    return memoryValue;
+  }
+}
+
+function writeColumnsRaw(value: string): void {
+  memoryValue = value;
+  try {
+    localStorage.setItem(COLUMNS_KEY, value);
+  } catch {
+    /* storage unavailable: memoryValue carries the session */
+  }
+  for (const l of listeners) l();
+}
+
+function parseColumns(raw: string): Set<SortKey> {
+  if (!raw) return new Set();
+  try {
+    return new Set(
+      (JSON.parse(raw) as unknown[]).filter((k): k is SortKey =>
+        OPTIONAL_KEYS.includes(k as SortKey),
+      ),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * The workhorse: every process, sortable by any column, filterable by
+ * ownership, trust, alert state, network use or novelty, searchable,
+ * keyboard-driven. Publisher, path, parent and connection columns are
+ * optional and remembered per browser.
+ *
+ * Keys (when the table has focus): j / k or the arrows move the selection,
+ * Enter or i opens the inspector, x asks to terminate, / focuses search.
+ */
+export function ProcessTable({
+  processes,
+  alerts,
+  currentUser,
+  killingPid,
+  selectedPid,
+  watches,
+  onSelect,
+  onInspect,
+  onKill,
+}: ProcessTableProps) {
+  const watchedPaths = useMemo(() => new Set((watches ?? []).map((w) => w.key)), [watches]);
+  const [sortKey, setSortKey] = useState<SortKey>("cpu");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [query, setQuery] = useState("");
+  const [grouped, setGrouped] = useState(false);
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const columnsRaw = useSyncExternalStore(subscribeColumns, readColumnsRaw, () => "");
+  const shown = useMemo(() => parseColumns(columnsRaw), [columnsRaw]);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  const columns = useMemo(() => COLUMNS.filter((c) => !c.optional || shown.has(c.key)), [shown]);
+  const toggleColumn = (key: SortKey) => {
+    const next = new Set(shown);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    writeColumnsRaw(JSON.stringify([...next]));
+  };
+
+  const alertedPids = useMemo(() => new Set(alerts.map((a) => a.pid)), [alerts]);
+  const alertByPid = useMemo(() => new Map(alerts.map((a) => [a.pid, a])), [alerts]);
+
+  const matched = useMemo(
+    () =>
+      sortProcesses(
+        filterProcesses(processes, { filter, query, currentUser, alertedPids }),
+        sortKey,
+        sortDir,
+      ),
+    [processes, filter, query, currentUser, alertedPids, sortKey, sortDir],
+  );
+  // Grouped: helpers sit under the first process of their app in sort order,
+  // hidden until the lead is disclosed. The keyboard walks visible rows only.
+  const grouping = useMemo(() => (grouped ? groupByApp(matched) : null), [grouped, matched]);
+  const rows = useMemo(() => {
+    if (!grouping) return matched;
+    return grouping.order.filter((p) => {
+      const lead = grouping.memberOf.get(p.pid);
+      return lead === undefined || expanded.has(lead);
+    });
+  }, [grouping, matched, expanded]);
+  const toggleGroup = (pid: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(pid)) next.delete(pid);
+      else next.add(pid);
+      return next;
+    });
+
+  const setSort = (key: SortKey) => {
+    if (key === sortKey) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else {
+      setSortKey(key);
+      setSortDir(DEFAULT_DIR[key]);
+    }
+  };
+
+  const move = (delta: number) => {
+    if (rows.length === 0) return;
+    const idx = rows.findIndex((r) => r.pid === selectedPid);
+    const next =
+      idx === -1
+        ? delta > 0
+          ? 0
+          : rows.length - 1
+        : Math.min(Math.max(idx + delta, 0), rows.length - 1);
+    const pid = rows[next]?.pid;
+    if (pid === undefined) return;
+    onSelect(pid);
+    bodyRef.current
+      ?.querySelector<HTMLElement>(`[data-pid="${pid}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target instanceof HTMLInputElement) return; // typing in search or the chooser
+    switch (e.key) {
+      case "j":
+      case "ArrowDown":
+        e.preventDefault();
+        move(1);
+        break;
+      case "k":
+      case "ArrowUp":
+        e.preventDefault();
+        move(-1);
+        break;
+      case "Enter":
+      case "i":
+        if (selectedPid !== null) {
+          e.preventDefault();
+          onInspect(selectedPid);
+        }
+        break;
+      case "x": {
+        const row = rows.find((r) => r.pid === selectedPid);
+        if (row) {
+          e.preventDefault();
+          onKill(row.pid, row.command);
+        }
+        break;
+      }
+      case "/":
+        e.preventDefault();
+        searchRef.current?.focus();
+        break;
+      default:
+        break;
+    }
+  };
+
+  const summary = `${matched.length} of ${processes.length} processes`;
+
+  const cell = (proc: ProcessInfo, key: SortKey) => {
+    switch (key) {
+      case "trust":
+        return (
+          <td key={key} className="px-2 py-1">
+            <TrustLamp trust={proc.trust} />
+          </td>
+        );
+      case "pid":
+        return (
+          <td key={key} className="px-2 py-1 text-right tabular-nums text-muted-foreground">
+            {proc.pid}
+          </td>
+        );
+      case "ppid":
+        return (
+          <td key={key} className="px-2 py-1 text-right tabular-nums text-muted-foreground">
+            {proc.ppid}
+          </td>
+        );
+      case "command": {
+        const alert = alertByPid.get(proc.pid);
+        const group = grouping?.groups.get(proc.pid);
+        const member = grouping?.memberOf.has(proc.pid) ?? false;
+        return (
+          <td key={key} className="max-w-[320px] px-2 py-1" title={proc.path}>
+            <div className={`truncate ${member ? "pl-5" : ""}`}>
+              {group && (
+                <button
+                  type="button"
+                  aria-expanded={expanded.has(proc.pid)}
+                  aria-label={`${expanded.has(proc.pid) ? "Hide" : "Show"} ${group.members.length} more ${appOf(proc)} process${group.members.length === 1 ? "" : "es"}`}
+                  className="mr-1 inline-block w-3 text-muted-foreground hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleGroup(proc.pid);
+                  }}
+                >
+                  <span aria-hidden="true">{expanded.has(proc.pid) ? "▾" : "▸"}</span>
+                </button>
+              )}
+              {member && (
+                <span aria-hidden="true" className="mr-1 text-muted-foreground">
+                  └
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInspect(proc.pid);
+                }}
+                className="truncate text-left hover:underline"
+                aria-label={`Inspect ${proc.command}, PID ${proc.pid}`}
+              >
+                {proc.command}
+              </button>
+              {watchedPaths.has(proc.path) && (
+                <span className="ml-2 lamp" data-state="info" title="Watched">
+                  <span aria-hidden="true">watch</span>
+                  <span className="sr-only">watched</span>
+                </span>
+              )}
+              {proc.newSinceBaseline && (
+                <span
+                  className="ml-2 lamp"
+                  data-state="caution"
+                  title="This executable was not running when the baseline was recorded"
+                >
+                  <span aria-hidden="true">new</span>
+                  <span className="sr-only">new since baseline</span>
+                </span>
+              )}
+              {alert && (
+                <span className="ml-2 lamp" data-state="alarm">
+                  <span aria-hidden="true">hot</span>
+                  <span className="sr-only">flagged: sustained high CPU</span>
+                </span>
+              )}
+              {proc.publisher && proc.trust !== "apple" && !shown.has("publisher") && (
+                <span className="ml-2 text-muted-foreground">{proc.publisher}</span>
+              )}
+              {group && (
+                <span className="ml-2 text-muted-foreground">
+                  +{group.members.length}, {group.cpu.toFixed(1)}% CPU, {formatBytes(group.rss)}
+                </span>
+              )}
+            </div>
+            {alert && (
+              <p className="text-[10px] leading-tight text-muted-foreground">
+                {alert.cpu.toFixed(0)}% of one core for {formatDuration(alert.duration)}
+              </p>
+            )}
+          </td>
+        );
+      }
+      case "publisher":
+        return (
+          <td key={key} className="max-w-[160px] truncate px-2 py-1 text-muted-foreground">
+            {proc.publisher ?? ""}
+          </td>
+        );
+      case "path":
+        return (
+          <td
+            key={key}
+            className="max-w-[280px] truncate px-2 py-1 text-muted-foreground"
+            title={proc.path}
+          >
+            {proc.path}
+          </td>
+        );
+      case "user":
+        return (
+          <td key={key} className="px-2 py-1 text-muted-foreground">
+            {proc.user}
+          </td>
+        );
+      case "cpu": {
+        const tone = proc.cpu > 50 ? "text-alarm font-semibold" : proc.cpu > 20 ? "text-amber" : "";
+        return (
+          <td key={key} className={`px-2 py-1 text-right tabular-nums ${tone}`}>
+            {proc.cpu.toFixed(1)}
+          </td>
+        );
+      }
+      case "mem":
+        return (
+          <td
+            key={key}
+            className={`px-2 py-1 text-right tabular-nums ${proc.mem > 5 ? "text-amber" : ""}`}
+          >
+            {proc.mem.toFixed(1)}
+          </td>
+        );
+      case "rss":
+        return (
+          <td key={key} className="px-2 py-1 text-right tabular-nums text-muted-foreground">
+            {formatBytes(proc.rss)}
+          </td>
+        );
+      case "connections":
+        return (
+          <td
+            key={key}
+            className={`px-2 py-1 text-right tabular-nums ${proc.connections > 0 ? "text-cathode" : "text-muted-foreground"}`}
+          >
+            {proc.connections}
+          </td>
+        );
+      case "elapsed":
+        return (
+          <td key={key} className="px-2 py-1 text-right tabular-nums text-muted-foreground">
+            {formatAge(proc.elapsed)}
+          </td>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
-    <ScrollArea className="h-[440px]">
-      <Table>
-        {/* L-04: the table announces its own purpose. */}
-        <TableCaption className="sr-only">
-          Running processes ordered by CPU usage. Each row offers a button to terminate that process.
-        </TableCaption>
-        <TableHeader>
-          <TableRow className="border-border hover:bg-transparent">
-            <TableHead scope="col" className="w-16 font-mono text-xs">PID</TableHead>
-            <TableHead scope="col" className="font-mono text-xs">Process</TableHead>
-            <TableHead scope="col" className="w-16 font-mono text-xs">User</TableHead>
-            <TableHead scope="col" className="w-24 text-right font-mono text-xs">
-              CPU<span className="sr-only"> percent of one core</span>
-            </TableHead>
-            <TableHead scope="col" className="w-20 text-right font-mono text-xs">MEM %</TableHead>
-            <TableHead scope="col" className="w-20 text-right font-mono text-xs">RSS</TableHead>
-            <TableHead scope="col" className="w-20 text-right font-mono text-xs">Action</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {processes.map((proc) => {
-            const isAlerted = alerted.has(proc.pid);
-            const hot = proc.cpu > 50;
-            const warm = proc.cpu > 20;
-            const busy = killingPid === proc.pid;
-            return (
-              <TableRow
-                key={proc.pid}
-                className={`group border-border hover:bg-muted/50 ${isAlerted ? "bg-red-500/5" : ""}`}
-              >
-                <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
-                  {proc.pid}
-                </TableCell>
-                <TableCell className="max-w-[300px] truncate font-mono text-xs" title={proc.command}>
-                  {isAlerted && (
-                    <span
-                      aria-hidden="true"
-                      className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-red-500 motion-safe:animate-pulse"
-                    />
-                  )}
-                  {proc.command}
-                  {isAlerted && <span className="sr-only"> (flagged: sustained high CPU)</span>}
-                </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">{proc.user}</TableCell>
-                <TableCell
-                  className={`text-right font-mono text-xs tabular-nums ${hot ? "font-bold text-red-400" : warm ? "text-amber-400" : ""}`}
-                >
-                  {proc.cpu.toFixed(1)}
-                </TableCell>
-                <TableCell
-                  className={`text-right font-mono text-xs tabular-nums ${proc.mem > 5 ? "text-amber-400" : ""}`}
-                >
-                  {proc.mem.toFixed(1)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-xs tabular-nums text-muted-foreground">
-                  {formatBytes(proc.rss)}
-                </TableCell>
-                <TableCell className="text-right">
-                  {/*
-                    M-07: previously `opacity-0 group-hover:opacity-100`, which left
-                    keyboard users tabbing to an invisible destructive control and
-                    made it unreachable on touch. Now revealed by focus too, and
-                    always visible on coarse pointers.
-                  */}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Terminate ${proc.command}, PID ${proc.pid}`}
-                    className={`h-6 min-h-6 px-2 font-mono text-xs text-red-400 transition-opacity hover:bg-red-500/10 hover:text-red-300 focus-visible:opacity-100 group-focus-within:opacity-100 ${
-                      isAlerted ? "opacity-100" : "opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100"
-                    }`}
-                    onClick={() => onKill(proc.pid, proc.command)}
-                    disabled={busy}
+    <div className="flex h-full min-h-0 flex-col" onKeyDown={onKeyDown}>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+        <div role="group" aria-label="Filter processes" className="flex flex-wrap gap-1">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setFilter(f.key)}
+              aria-pressed={filter === f.key}
+              className={`rounded border px-2 py-0.5 font-mono text-[11px] ${
+                filter === f.key
+                  ? "border-phosphor/60 bg-phosphor/10 text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          aria-pressed={grouped}
+          onClick={() => setGrouped((g) => !g)}
+          title="Fold each app's helper processes under it"
+          className={`rounded border px-2 py-0.5 font-mono text-[11px] ${
+            grouped
+              ? "border-phosphor/60 bg-phosphor/10 text-foreground"
+              : "border-border text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Group by app
+        </button>
+        <details className="relative font-mono text-[11px]">
+          <summary className="cursor-default list-none rounded border border-border px-2 py-0.5 text-muted-foreground hover:text-foreground">
+            Columns
+          </summary>
+          <div
+            role="group"
+            aria-label="Optional columns"
+            className="absolute left-0 z-20 mt-1 flex flex-col gap-1 rounded border border-border bg-card p-2 shadow-lg"
+          >
+            {COLUMNS.filter((c) => c.optional).map((c) => (
+              <label key={c.key} className="flex items-center gap-1.5 whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={shown.has(c.key)}
+                  onChange={() => toggleColumn(c.key)}
+                />
+                {c.label}
+              </label>
+            ))}
+          </div>
+        </details>
+        <label className="ml-auto flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+          <span>Search</span>
+          <input
+            ref={searchRef}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="name, path, publisher, pid"
+            className="w-56 rounded border border-border bg-tube px-2 py-0.5 text-xs text-foreground placeholder:text-muted-foreground/60"
+          />
+        </label>
+        <span role="status" className="font-mono text-[11px] tabular-nums text-muted-foreground">
+          {summary}
+        </span>
+      </div>
+
+      <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto">
+        <table
+          tabIndex={0}
+          role="grid"
+          aria-label="Processes"
+          aria-rowcount={rows.length}
+          aria-keyshortcuts="j k Enter i x /"
+          className="w-full border-collapse font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-phosphor/60"
+        >
+          <caption className="sr-only">
+            Running processes. Sort by any column heading. Each row can be inspected or terminated.
+          </caption>
+          <thead className="sticky top-0 z-10 bg-card">
+            <tr className="border-b border-border text-left">
+              {columns.map((c) => {
+                const active = c.key === sortKey;
+                return (
+                  <th
+                    key={c.key}
+                    scope="col"
+                    aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                    className={`px-2 py-1.5 font-medium text-muted-foreground ${c.className}`}
                   >
-                    {busy ? "…" : "kill"}
-                    <span className="sr-only"> {proc.command}</span>
-                  </Button>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </ScrollArea>
+                    <button
+                      type="button"
+                      onClick={() => setSort(c.key)}
+                      title={c.hint}
+                      className={`inline-flex items-center gap-1 hover:text-foreground ${active ? "text-foreground" : ""}`}
+                    >
+                      {c.label}
+                      {c.srLabel && <span className="sr-only"> {c.srLabel}</span>}
+                      <span aria-hidden="true" className="text-[9px]">
+                        {active ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                      </span>
+                    </button>
+                  </th>
+                );
+              })}
+              <th
+                scope="col"
+                className="w-16 px-2 py-1.5 text-right font-medium text-muted-foreground"
+              >
+                Action
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((proc) => {
+              const isAlerted = alertedPids.has(proc.pid);
+              const selected = proc.pid === selectedPid;
+              const busy = killingPid === proc.pid;
+              return (
+                <tr
+                  key={proc.pid}
+                  data-pid={proc.pid}
+                  aria-selected={selected}
+                  onClick={() => onSelect(proc.pid)}
+                  onDoubleClick={() => onInspect(proc.pid)}
+                  className={`cursor-default border-b border-border/60 ${
+                    selected ? "bg-cathode/10" : isAlerted ? "bg-alarm/5" : "hover:bg-accent/60"
+                  }`}
+                >
+                  {columns.map((c) => cell(proc, c.key))}
+                  <td className="px-2 py-1 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Terminate ${proc.command}, PID ${proc.pid}`}
+                      className="h-6 min-h-6 px-2 font-mono text-xs text-alarm hover:bg-alarm/10 hover:text-alarm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onKill(proc.pid, proc.command);
+                      }}
+                      disabled={busy}
+                    >
+                      {busy ? "…" : "kill"}
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+            {rows.length === 0 && (
+              <tr>
+                <td
+                  colSpan={columns.length + 1}
+                  className="px-3 py-6 text-center text-muted-foreground"
+                >
+                  No processes match. Clear the search or choose another filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

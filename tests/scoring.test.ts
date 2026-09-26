@@ -64,7 +64,9 @@ describe("M-15 — health score is bounded and single-counted", () => {
   });
 
   test("scores are integers", () => {
-    expect(Number.isInteger(healthScore({ ...baseHealth, swapUsedMB: 777, criticalHogs: 3 }))).toBe(true);
+    expect(Number.isInteger(healthScore({ ...baseHealth, swapUsedMB: 777, criticalHogs: 3 }))).toBe(
+      true,
+    );
   });
 });
 

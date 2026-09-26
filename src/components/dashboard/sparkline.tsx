@@ -18,9 +18,9 @@ export interface SparklineProps {
   max: number;
   color: string;
   label: string;
-  unit?: string;
-  warnAt?: number;
-  critAt?: number;
+  unit?: string | undefined;
+  warnAt?: number | undefined;
+  critAt?: number | undefined;
 }
 
 export function Sparkline({ data, max, color, label, unit = "", warnAt, critAt }: SparklineProps) {
@@ -61,14 +61,26 @@ export function Sparkline({ data, max, color, label, unit = "", warnAt, critAt }
       >
         {warnAt !== undefined && warnAt < scale && (
           <line
-            x1={PAD} y1={y(warnAt)} x2={PAD + w} y2={y(warnAt)}
-            stroke="oklch(0.828 0.189 84.429)" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.4"
+            x1={PAD}
+            y1={y(warnAt)}
+            x2={PAD + w}
+            y2={y(warnAt)}
+            stroke="oklch(0.828 0.189 84.429)"
+            strokeWidth="0.5"
+            strokeDasharray="3,3"
+            opacity="0.4"
           />
         )}
         {critAt !== undefined && critAt < scale && (
           <line
-            x1={PAD} y1={y(critAt)} x2={PAD + w} y2={y(critAt)}
-            stroke="oklch(0.704 0.191 22.216)" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.4"
+            x1={PAD}
+            y1={y(critAt)}
+            x2={PAD + w}
+            y2={y(critAt)}
+            stroke="oklch(0.704 0.191 22.216)"
+            strokeWidth="0.5"
+            strokeDasharray="3,3"
+            opacity="0.4"
           />
         )}
         <polygon points={area} fill={color} opacity="0.1" />

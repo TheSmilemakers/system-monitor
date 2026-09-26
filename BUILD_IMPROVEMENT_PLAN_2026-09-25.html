@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build Improvement Plan</title>
+<style>
+  :root {
+    --ink: #1a1a1a; --muted: #5b6270; --line: #d9dde3; --bg: #ffffff; --panel: #f4f6f8;
+    --p0: #b3261e; --p1: #c26a00; --p2: #1d5fa7; --p3: #4b5563; --ok: #1e7f4f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 40px; font: 11pt/1.5 -apple-system, "Helvetica Neue", Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  h1 { font-size: 22pt; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 15pt; margin: 28px 0 8px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); page-break-after: avoid; }
+  h3 { font-size: 12pt; margin: 18px 0 6px; page-break-after: avoid; }
+  p { margin: 6px 0; }
+  .meta { color: var(--muted); font-size: 9.5pt; margin-bottom: 18px; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 9.5pt; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 5px 7px; vertical-align: top; text-align: left; }
+  th { background: var(--panel); font-weight: 600; }
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 9pt; }
+  code { background: var(--panel); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--panel); padding: 10px 12px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; page-break-inside: avoid; }
+  .tag { display: inline-block; font-size: 8.5pt; font-weight: 700; padding: 1px 7px; border-radius: 3px; color: #fff; vertical-align: middle; margin-right: 6px; }
+  .p0 { background: var(--p0); } .p1 { background: var(--p1); } .p2 { background: var(--p2); } .p3 { background: var(--p3); }
+  .ok { color: var(--ok); font-weight: 600; } .bad { color: var(--p0); font-weight: 600; } .warn { color: var(--p1); font-weight: 600; }
+  .finding { border-left: 3px solid var(--line); padding: 2px 0 2px 12px; margin: 10px 0 14px; }
+  .finding.p0 { border-color: var(--p0); background: none; } .finding.p1 { border-color: var(--p1); background: none; }
+  .finding.p2 { border-color: var(--p2); background: none; } .finding.p3 { border-color: var(--p3); background: none; }
+  .finding h3 { margin-top: 0; }
+  .kv { color: var(--muted); font-size: 9.5pt; }
+  ul { margin: 4px 0 8px; padding-left: 20px; } li { margin: 2px 0; }
+  .summary { background: var(--panel); border-radius: 6px; padding: 12px 16px; margin: 12px 0 18px; }
+  @media print { body { padding: 0; } @page { size: A4; margin: 16mm 14mm; } }
+</style>
+</head>
+<body>
+
+<h1>Build Improvement Plan</h1>
+<div class="meta">system-monitor · Next.js 16.2.12 · Bun 1.3.5 · prepared 25/09/2026 by Kai · every figure below was measured on the current tree (commit d81b50e)</div>
+
+<div class="summary">
+<p><strong>Where the build stands.</strong> The toolchain is in better shape than most projects this size: strict TypeScript, zero-warning lint, 93 passing unit tests, a boot-and-render smoke test, and a 40-check QA gate. All of that is green under native arm64 node.</p>
+<p><strong>What is wrong.</strong> Three of the gates can report green while the thing they guard is broken. The CI dependency-audit step swallows failures, and today that hides two <em>critical</em> remote-code-execution advisories in the installed Next.js. The smoke and QA gates exit with an unexplained "code 1" whenever a dev server is already open, and the QA gate passes when the registry is unreachable. The test suite exercises only 9 library files; no route handler, server action, hook, or component is ever imported by a test.</p>
+<p><strong>Recommendation.</strong> Fix the three lying gates first (half a day, P0). Then move testing from "logic mirrored in tests" to "production entry points invoked by tests" and set a coverage floor (P1). Then harden CI reproducibility and tighten the compiler (P2, P3). A sequenced plan is in section 5.</p>
+</div>
+
+<h2>1. Current gate scorecard</h2>
+<table>
+<tr><th>Gate</th><th>Runs locally</th><th>Runs in CI</th><th>Verdict today</th><th>Trustworthy?</th></tr>
+<tr><td>Typecheck (<code>tsc --noEmit</code>)</td><td>check</td><td>yes</td><td class="ok">clean</td><td>Yes. Note it also typechecks generated <code>.next/dev/types</code>, which a crashed dev server can leave torn.</td></tr>
+<tr><td>Lint (eslint, max-warnings 0)</td><td>check</td><td>yes</td><td class="ok">clean</td><td>Yes.</td></tr>
+<tr><td>Unit tests (<code>bun test</code>)</td><td>check</td><td>yes</td><td class="ok">93 pass</td><td>Partly. 76.7% lines across loaded files only; routes, actions, hooks, components never loaded.</td></tr>
+<tr><td>Production build</td><td>check</td><td>yes</td><td class="ok">success, ~5 s</td><td>Yes.</td></tr>
+<tr><td>Dependency audit</td><td><span class="bad">not in check</span></td><td>yes, <code>|| true</code></td><td class="bad">16 advisories, 2 critical</td><td><span class="bad">No.</span> Cannot fail. Currently masking Next.js RCE advisories.</td></tr>
+<tr><td>Smoke (dev server, 13 checks)</td><td>check</td><td>yes</td><td class="warn">13/13, or "exited early" if any dev server is open</td><td>Fragile locally; fine on a clean runner.</td></tr>
+<tr><td>QA gate (5 phases × 10)</td><td><span class="bad">not in check</span></td><td>yes</td><td class="bad">phase 4: 8/10</td><td>Partly. Fails open when offline; P4-10 inherits the smoke fragility.</td></tr>
+<tr><td>Bun / Node / Actions pinning</td><td>—</td><td>—</td><td class="bad">none</td><td><code>bun-version: latest</code>, <code>macos-latest</code>, tag-pinned actions, no <code>packageManager</code>.</td></tr>
+<tr><td>Component / DOM tests, e2e, accessibility</td><td>—</td><td>—</td><td class="bad">none</td><td>No DOM environment or testing library installed.</td></tr>
+</table>
+
+<h2>2. Findings and recommendations</h2>
+<p class="kv">Priority: P0 = gate currently lying or hiding a real risk · P1 = large blind spot · P2 = reproducibility and cost · P3 = strictness and polish. Effort is a working estimate for one engineer.</p>
+
+<div class="finding p0">
+<h3><span class="tag p0">P0</span>Dependency audit cannot fail, and is hiding two critical Next.js advisories</h3>
+<p><strong>Evidence.</strong> <code>.github/workflows/ci.yml:35</code> runs <code>bun audit --audit-level=high || true</code>. Running the audit today reports 16 advisories (2 critical, 14 high). The critical ones are in the direct dependency <code>next</code>, range <code>&gt;=16.0.0 &lt;16.3.3</code>, installed 16.2.12: unauthenticated RCE on Windows-hosted servers and RCE in the image optimisation API with AVIF input. <code>sharp &lt;0.35.4</code> carries a high. Twelve of the sixteen live only in the eslint tool chain. The QA gate's P4-9 does fail on this, but its result was masked too because P4-10 failed for an unrelated reason (below), so the signal looked like noise.</p>
+<p><strong>Change.</strong></p>
+<ul>
+<li>Upgrade <code>next</code> and <code>eslint-config-next</code> to 16.3.6, raise the <code>sharp</code> override to <code>^0.35.4</code>, run the full gate.</li>
+<li>Split the audit: <code>bun audit --prod --audit-level=high</code> as a hard-failing step (today it reports exactly the 4 real advisories: nanoid, next ×2, sharp), and a second non-blocking <code>bun audit</code> for the dev tree whose output is uploaded as a job summary.</li>
+<li>Make the QA gate's <code>prodAdvisories()</code> fail closed: a registry error is a FAIL with the reason printed, not a PASS. Allow an explicit <code>--offline</code> flag that marks the check SKIPPED and exits non-zero unless <code>ALLOW_OFFLINE_QA=1</code>.</li>
+<li>Record dev-tree exceptions in <code>docs/security-exceptions.md</code> with an expiry date, as the July re-audit recommended (it was never written).</li>
+</ul>
+<p class="kv">Effort: 2–3 h including the Next upgrade smoke run.</p>
+</div>
+
+<div class="finding p0">
+<h3><span class="tag p0">P0</span>Smoke and QA gates fail with no explanation whenever a dev server is open</h3>
+<p><strong>Evidence.</strong> Next 16 keeps a per-project dev lock (<code>.next/dev/lock</code>); it is not per-port. With the Desktop launcher's server alive on port 3000, <code>node scripts/smoke.mjs</code> on port 3199 prints only <code>server exited early (code 1)</code>, and the QA gate's P4-10 reports <code>smoke:false</code>. The real message ("Another next dev server is already running … PID …") is captured into <code>serverLog</code> but never printed on this path (<code>scripts/smoke.mjs:51-64</code>). This is the exact failure that hid today's Rosetta outage.</p>
+<p><strong>Change.</strong></p>
+<ul>
+<li>Print the last 20 lines of the captured server log on any early exit.</li>
+<li>Pre-flight: if <code>.next/dev/lock</code> exists and its PID is alive, fail immediately with "dev server PID n holds the lock; stop it or run with --prod".</li>
+<li>Make production mode the default in CI. The build has just run; <code>next start</code> boots in under a second and tests the artefact that ships rather than the dev server. Keep the dev-mode run as a second step so Turbopack dev regressions (the original reason for the script) are still caught.</li>
+<li>Add a <code>predev</code> preflight (<code>scripts/preflight.mjs</code>) that fails fast when <code>process.arch</code> differs from <code>uname -m</code> or the lightningcss binary for the current arch is missing. It turns today's HTTP 500 on every page into a one-line error at start-up.</li>
+</ul>
+<p class="kv">Effort: 2 h.</p>
+</div>
+
+<div class="finding p0">
+<h3><span class="tag p0">P0</span>Local <code>bun run check</code> is a lower bar than CI</h3>
+<p><strong>Evidence.</strong> <code>package.json:18</code> chains typecheck, lint, test, build, smoke. CI additionally runs the dependency audit and all 50 QA checks. A contributor who sees local green has not run the same gates.</p>
+<p><strong>Change.</strong> Make <code>check</code> the full CI set and have CI call <code>bun run check</code> as one step, so the two can never drift. Keep a <code>check:fast</code> (typecheck, lint, test) for inner-loop use.</p>
+<p class="kv">Effort: 30 min.</p>
+</div>
+
+<div class="finding p1">
+<h3><span class="tag p1">P1</span>Tests never invoke the production entry points</h3>
+<p><strong>Evidence.</strong> <code>bun test --coverage</code> loads only 9 of the source files:</p>
+<table>
+<tr><th>File</th><th>Funcs</th><th>Lines</th><th>Note</th></tr>
+<tr><td>lib/cleanup-targets, process-identity, scoring, single-flight</td><td>100</td><td>100</td><td></td></tr>
+<tr><td>lib/probe.ts</td><td>90.9</td><td>98.6</td><td></td></tr>
+<tr><td>lib/schemas.ts</td><td>81.8</td><td>82.9</td><td>error branches untested</td></tr>
+<tr><td>lib/guard.ts</td><td>60.0</td><td>59.4</td><td>lines 51–61 (the reject path) untested</td></tr>
+<tr><td>lib/resolve-host.ts</td><td>20.0</td><td>29.8</td><td></td></tr>
+<tr><td>lib/sampler.ts</td><td>71.4</td><td><span class="bad">19.3</span></td><td>orchestration (lines 118–261) untested; only parsers are</td></tr>
+<tr><td>lib/pool.ts, lib/format.ts, lib/utils.ts</td><td colspan="2">not loaded</td><td></td></tr>
+<tr><td>app/api/{stats,scan,cleanup,privacy}/route.ts</td><td colspan="2">not loaded</td><td>only black-box status codes via smoke; QA gate checks for the literal string <code>assertLocalRequest(</code> in source</td></tr>
+<tr><td>app/actions.ts (cleanupItem, killProcess)</td><td colspan="2">not loaded</td><td><code>tests/cleanup-boundary.test.ts</code> re-implements <code>sweep()</code> instead of calling it</td></tr>
+<tr><td>hooks/use-polling.ts, components/** (10 files)</td><td colspan="2">not loaded</td><td>no DOM environment installed</td></tr>
+</table>
+<p><strong>Change.</strong></p>
+<ul>
+<li>Route handler tests: import each <code>GET</code>/<code>POST</code> and call it with a constructed <code>Request</code>. Assert on the parsed body against <code>lib/schemas.ts</code>, the 403 path for a forged Host, and the <code>no-store</code> header. Bun runs these without a server.</li>
+<li>Server action tests: call <code>cleanupItem</code> and <code>killProcess</code> with a stubbed probe layer (inject via the existing <code>probe.ts</code> seam) and assert the refusal paths: path outside the permitted roots, PID 0/1, own PID, non-numeric input.</li>
+<li>Sampler orchestration: run <code>sample()</code> against fake probe results covering <code>timeout</code>, <code>denied</code>, <code>unsupported</code>, and confirm history window and alert state transitions. This lifts the 19% line figure and covers the code that actually runs every poll.</li>
+<li>Hook and component tests: add <code>happy-dom</code> and <code>@testing-library/react</code>, register via <code>bunfig.toml</code> <code>[test] preload</code>. First targets: <code>use-polling</code> (pause on hidden tab, overlap guard, cancellation) and <code>process-table</code> (sorting, kill confirmation). These replace the regex-on-source checks in QA phase 3 with behavioural ones.</li>
+<li>Coverage floor: <code>bunfig.toml</code> <code>[test] coverage = true</code>, <code>coverageThreshold = { lines = 0.80, functions = 0.85 }</code>, <code>coverageSkipTestFiles = true</code>. Ratchet upward as the above lands. Bun fails the run when the threshold is missed.</li>
+</ul>
+<p class="kv">Effort: 2–3 days for the full set; the route and action tests (highest value) are about one day.</p>
+</div>
+
+<div class="finding p1">
+<h3><span class="tag p1">P1</span>No end-to-end or accessibility gate</h3>
+<p><strong>Evidence.</strong> The smoke script checks status codes, two headers, and the presence of one heading. Accessibility is asserted only by QA phase 3 grepping source text for live regions and labels. The July research notes recommended a Playwright + axe gate; it was not built.</p>
+<p><strong>Change.</strong> One Playwright spec against the production server: page loads, stats populate within the polling interval, a process row can be selected, the cleanup confirmation appears and can be cancelled, and <code>axe-core</code> reports zero serious or critical violations. Run on the macOS runner after the build. Keep it to a single spec file so it stays fast and unflaky.</p>
+<p class="kv">Effort: 1 day.</p>
+</div>
+
+<div class="finding p2">
+<h3><span class="tag p2">P2</span>CI is unpinned, uncached, unbounded, and runs twice per push</h3>
+<p><strong>Evidence.</strong> <code>ci.yml</code>: <code>bun-version: latest</code>; <code>runs-on: macos-latest</code>; <code>actions/checkout@v4</code> and <code>oven-sh/setup-bun@v2</code> by tag; no <code>concurrency</code>; no <code>timeout-minutes</code>; no cache for <code>~/.bun/install/cache</code>; triggers on <code>push: ["**"]</code> and <code>pull_request</code>, so a push to a PR branch runs the job twice. No <code>packageManager</code> field, no <code>.node-version</code>, no Dependabot config.</p>
+<p><strong>Change.</strong></p>
+<ul>
+<li><code>"packageManager": "bun@1.3.5"</code> in package.json and <code>bun-version-file: package.json</code> in the workflow; <code>.node-version</code> = 22 for the smoke and QA scripts that run under node.</li>
+<li>Pin actions to commit SHAs with a version comment; pin the runner to <code>macos-15</code>.</li>
+<li><code>concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }</code>; <code>timeout-minutes: 20</code>; restrict push triggers to <code>main</code> and let <code>pull_request</code> cover branches.</li>
+<li>Cache <code>~/.bun/install/cache</code> keyed on <code>hashFiles('bun.lock')</code>.</li>
+<li><code>.github/dependabot.yml</code>: weekly, grouped minor/patch, separate security updates for <code>next</code>, <code>sharp</code>, <code>lightningcss</code>, and <code>github-actions</code>.</li>
+<li>Optional second job: <code>arch -x86_64</code> install and test on the arm64 runner, which would have caught today's Rosetta failure in CI rather than on the desktop.</li>
+</ul>
+<p class="kv">Effort: half a day.</p>
+</div>
+
+<div class="finding p3">
+<h3><span class="tag p3">P3</span>Compiler strictness has cheap headroom</h3>
+<p><strong>Evidence.</strong> <code>tsconfig.json</code> sets <code>strict</code> only. Measured against the current tree:</p>
+<table>
+<tr><th>Flag</th><th>New errors</th><th>Where</th></tr>
+<tr><td><code>exactOptionalPropertyTypes</code></td><td class="ok">0</td><td>free</td></tr>
+<tr><td><code>noImplicitOverride</code> + <code>noFallthroughCasesInSwitch</code></td><td class="ok">0</td><td>free</td></tr>
+<tr><td><code>noUncheckedIndexedAccess</code></td><td>38</td><td>17 in tests, 9 in page.tsx, 6 in sparkline.tsx, 6 in lib (sampler, resolve-host, pool, guard)</td></tr>
+<tr><td><code>noPropertyAccessFromIndexSignature</code></td><td>197</td><td>not worth it</td></tr>
+</table>
+<p><strong>Change.</strong> Enable the three free flags now. Enable <code>noUncheckedIndexedAccess</code> in a dedicated PR: the 6 library hits are in code that parses <code>ps</code> and <code>vm_stat</code> output, which is where an unchecked index is most likely to be a real bug. Also make the safe Next defaults explicit so a regression is a visible diff: <code>typescript: { ignoreBuildErrors: false }</code>, <code>eslint: { ignoreDuringBuilds: false }</code>, <code>reactStrictMode: true</code>, <code>typedRoutes: true</code>. Exclude <code>.next/dev/types</code> from <code>tsc</code> runs, or clean it in <code>pretest</code>, so a torn generated file cannot fail typecheck.</p>
+<p class="kv">Effort: 1 h for the free flags and config; half a day for the index-access PR.</p>
+</div>
+
+<div class="finding p3">
+<h3><span class="tag p3">P3</span>No local guardrails before commit</h3>
+<p><strong>Evidence.</strong> No Prettier config, no lefthook or husky, no knip. Lint and format are enforced only in CI; unused exports and dependencies are never checked.</p>
+<p><strong>Change.</strong> <code>lefthook.yml</code> running <code>tsc --noEmit</code> and <code>eslint</code> on staged files at pre-commit; Prettier with the default config and a CI <code>--check</code>; <code>knip</code> in CI to catch unused files, exports, and dependencies (the removed <code>shadcn</code> import that once caused HTTP 500 on every page is precisely the class knip catches).</p>
+<p class="kv">Effort: 2 h.</p>
+</div>
+
+<h2>3. Target pipeline</h2>
+<table>
+<tr><th>Stage</th><th>Contents</th><th>Time budget</th></tr>
+<tr><td>Pre-commit (lefthook)</td><td>tsc, eslint on staged, prettier</td><td>&lt; 10 s</td></tr>
+<tr><td><code>bun run check:fast</code></td><td>typecheck · lint · unit tests with coverage floor</td><td>&lt; 30 s</td></tr>
+<tr><td><code>bun run check</code> (= CI)</td><td>check:fast · prod audit (hard fail) · build · smoke --prod · smoke dev · QA gate all · e2e + axe · knip</td><td>&lt; 6 min on macos-15</td></tr>
+<tr><td>Nightly / weekly</td><td>full-tree audit report · Dependabot PRs · optional x86_64 leg</td><td>—</td></tr>
+</table>
+
+<h2>4. Why not the alternatives</h2>
+<ul>
+<li><strong>Re-adding the x64 lightningcss binary</strong> would have made today's launcher work, but it was reverted as M-13 for good reason: it is a platform-locked dependency that masks an environment fault. The preflight check gives the same protection with a clear message instead.</li>
+<li><strong>Raising <code>--audit-level</code> to critical</strong> to make the step pass is the wrong direction; the two criticals are in <code>next</code> itself. Upgrade and fail closed.</li>
+<li><strong>Replacing the QA gate with conventional tools</strong> is not recommended. Its 50 checks encode project-specific invariants (loopback-only, permitted deletion roots, typed probe outcomes) that generic tooling cannot express. The fix is to have it call real code rather than grep source text, and to fail closed.</li>
+</ul>
+
+<h2>5. Sequenced plan</h2>
+<table>
+<tr><th>Step</th><th>Work</th><th>Exit criterion</th></tr>
+<tr><td>1 (P0, ½ day)</td><td>Next 16.3.6 + sharp override; audit split and hard fail; QA gate fails closed offline; smoke prints server log, checks dev lock, prod mode in CI; <code>check</code> = CI; preflight arch check on <code>predev</code></td><td>CI red on any prod advisory; QA phase 4 10/10; smoke gives a one-line reason on any failure</td></tr>
+<tr><td>2 (P2, ½ day)</td><td>packageManager, SHA-pinned actions, macos-15, concurrency, timeouts, bun cache, Dependabot</td><td>Same lockfile and tool versions on every run; one CI run per push</td></tr>
+<tr><td>3 (P1, ~1 day)</td><td>Route handler and server action tests; sampler orchestration tests; coverage floor 80/85</td><td>Every <code>src/app</code> entry point imported by a test; sampler above 80% lines</td></tr>
+<tr><td>4 (P1, ~2 days)</td><td>happy-dom + testing-library; use-polling and process-table tests; Playwright + axe spec</td><td>QA phase 3 regex checks replaced by behavioural tests; zero serious axe violations</td></tr>
+<tr><td>5 (P3, ½ day)</td><td>Free tsconfig flags, explicit Next config, lefthook, Prettier, knip; then <code>noUncheckedIndexedAccess</code> PR</td><td>Zero new lint or type debt; unused exports fail CI</td></tr>
+</table>
+
+<h2>Appendix A. Measurements taken</h2>
+<pre>bun run typecheck            clean (after the healthy dev run regenerated .next/dev/types/validator.ts)
+bun run lint                 clean
+bun test --coverage          93 pass · 80.46% funcs · 76.66% lines (loaded files only)
+bun run build                success in 5.3 s (native arm64, node 22.17.0)
+node scripts/smoke.mjs       13/13 when no other dev server is running; "exited early (code 1)" otherwise
+node scripts/smoke.mjs --prod 13/13
+node scripts/qa-gate.mjs all phases 0–3: 10/10 · phase 4: 8/10 (P4-9 advisories, P4-10 smoke)
+bun audit --audit-level=high 16 advisories (2 critical, 14 high), exit 1; CI step ignores exit code
+bun audit --prod             4 advisories: nanoid &lt;3.3.18, next &gt;=16.0.0 &lt;16.3.3 (×2 critical), sharp &lt;0.35.4
+npm view next version        16.3.6 (installed 16.2.12)
+tsc --noUncheckedIndexedAccess   38 errors · --exactOptionalPropertyTypes 0 · --noImplicitOverride --noFallthroughCasesInSwitch 0</pre>
+
+<h2>Appendix B. Sources</h2>
+<ul>
+<li><code>.github/workflows/ci.yml</code>, <code>package.json</code>, <code>tsconfig.json</code>, <code>next.config.ts</code>, <code>scripts/smoke.mjs</code>, <code>scripts/qa-gate.mjs</code>, <code>tests/*.test.ts</code></li>
+<li><code>DEEP_APP_REAUDIT_2026-07-29.md</code> findings HIGH-04 (false-green gates) and MEDIUM-04 (coverage), both re-verified open</li>
+<li><code>docs/research.md</code> §1 (SHA pinning), §8 (Playwright + axe), both recommended in July and not yet implemented</li>
+<li>Today's localhost outage: Desktop launcher under Rosetta, documented in <code>README.md</code> "Troubleshooting" on this branch</li>
+</ul>
+
+</body>
+</html>

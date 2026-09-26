@@ -1,0 +1,16 @@
+[test]
+# happy-dom is registered once, before any file loads. A per-file import is
+# too late: Testing Library's `screen` binds document.body at import time and
+# ES imports are hoisted. The route and action suites pass with it present.
+preload = ["./tests/dom/register.ts"]
+# Coverage is always computed so the threshold below is enforced on every
+# `bun test`, locally and in CI. Only files the suite loads are measured; the
+# route handlers, server actions and sampler are loaded by tests/routes.test.ts,
+# tests/actions.test.ts and tests/sampler.test.ts so they count.
+coverage = true
+coverageSkipTestFiles = true
+# Bun applies the threshold to EVERY loaded file, not to the aggregate
+# (verified 26/09/2026: 0.84 functions failed on a file at 83%). Aggregate was
+# 96% lines / 97% functions; the lowest file sits at 83% functions. The floor
+# is set beneath the weakest file and ratcheted up as tests land.
+coverageThreshold = { lines = 0.80, functions = 0.80 }

@@ -17,6 +17,82 @@ bun run dev
 
 Open <http://localhost:3000>. `bun run dev` and `bun run start` both bind `127.0.0.1`.
 
+The posture strip under the header is a row of lamps: firewall, SIP, Gatekeeper,
+FileVault, XProtect freshness, remote-access listeners, system extensions and
+pending updates. Press a lamp to read what it means and what to do. Every lamp
+is a read-only probe; one that cannot run stays dark rather than green.
+
+The scope above the workbench draws CPU, memory, load and network throughput
+over the last five minutes on one grid, with a faint phosphor afterglow (none
+under reduced motion) and an alarm tick where a process went hot.
+
+The monitor runs while the app is open: once a minute it snapshots running
+executables (by path and signature), outbound destinations, network-bound
+listening ports, launch agents and daemons (by content hash) and the posture
+lamps, user accounts and administrators, the contents of ~/.ssh, DNS resolvers
+and active system extensions, privacy grants (when Full Disk Access lets it read
+the TCC database), web proxies and /etc/hosts, the crontab and periodic scripts,
+and third-party kernel extensions; compares them with the baseline recorded on
+first run; and writes what changed to the Timeline tab. Alarms (an unsigned
+binary from Downloads, a launch item from an unrecognised vendor, SIP off, a new
+proxy, a Screen Recording grant) also post a macOS notification. The Permissions
+tab lists the last week of grant changes.
+"Reset baseline" makes the current state normal. State lives in
+`~/Library/Application Support/system-monitor` and never leaves the machine.
+
+Watch: the inspector's Watch button pins a process by executable path. The
+monitor then reports in the timeline, and posts a notification, when that
+executable starts or stops (checked once a minute, so a start and stop
+inside the same minute is missed). Watched rows carry a lamp in the table;
+the timeline lists the watch list with an unpin on each.
+
+A compact always-on view lives at `/mini` (posture lamps, CPU, memory and the
+latest event, sized for a small window). Open it as its own window with:
+
+```bash
+open -na "Google Chrome" --args --app=http://127.0.0.1:3000/mini --window-size=440,170
+```
+
+The tape under the scope rewinds the last hour: drag the counter and the scope
+and the process table show that moment (top 50 processes and the alerts, as
+they were). Actions are disabled on the tape; Escape or Back to live returns.
+
+The inspector answers to the hand as well: drag its header to the right and
+it follows; the sign of the release velocity decides whether it goes or springs
+back. Drag its left edge to resize (the arrow keys work on the handle too, and
+the width is remembered per browser). On a narrow window it is a bottom sheet
+with three stops, peek, half and full, chosen by momentum on release.
+
+The tape can be dragged: pull the scope's time axis or the counter sideways
+and the window follows the hand; a flick coasts and settles on a recorded
+frame. The range input remains for the keyboard.
+
+`/report` (the Report link in the header) prints a fixed-width shift report:
+posture, top processes with trust, network listeners and destinations, and the
+last 24 hours of timeline events. Print or save as PDF from the page, or copy
+the text; `/api/report` serves it as plain text.
+
+The bench: vitals on the left (seven-segment numerals and LED meters at retro
+level 1, the default), the process workbench on the right. Every process shows
+its code-signing trust (Apple, App Store, signed, ad-hoc, unsigned), publisher
+and age. Click a name or press Enter to open the inspector; ⌘K opens the
+command palette; the digits 1 to 8 pick a workbench tab. In the table, j and k
+move, i inspects, x asks to terminate, / focuses search; the Columns menu adds
+publisher, path, parent and connection columns, remembered per browser, and the
+filters include networked and new since baseline. Group by app folds each app's
+helper processes under it with a disclosure and a total. Every column heading
+and each vital carries a hint saying what the figure means. Theme (night shift or daylight) and retro intensity (clean,
+instrument, tube) are in the header and remembered per browser.
+
+The inspector explains every process in plain words from three offline
+layers, tried in order: a curated knowledge base of over 500 macOS daemons,
+agents, developer tools and third-party apps (`src/data/process-kb.json`:
+what it is, what is normal, when to worry, whether it is safe to kill, what
+to check); Apple's own manual pages; and heuristics from the path, bundle
+and signature. The identity card also says how the process was launched: by
+which launch agent or daemon, by launchd on demand, or by its parent. Nothing
+leaves the machine.
+
 ## Features
 
 ### Real-time dashboard
@@ -24,7 +100,7 @@ Open <http://localhost:3000>. `bun run dev` and `bun run start` both bind `127.0
 - **Sparkline history** — a rolling 5-minute window sampled on a server-side cadence, so the window means the same thing regardless of how often the browser polls
 - **Process table** — top processes by CPU, with per-row termination
 - **Process alerts** — processes sustaining high CPU for 9 seconds or more
-- **Refresh control** — 3s / 5s / 10s / 30s, or paused; polling is completion-driven and pauses while the tab is hidden
+- **Refresh control** — 3s / 5s / 10s / 30s, or paused. The sample is pushed over a server-sent event stream (`/api/stream`) at that cadence, completion-driven so a slow probe never queues; a dropped connection reconnects on its own with the last reading shown as stale, and a hidden tab closes the stream. The other panels poll
 
 ### System scan
 - **Browser audit** — flags multiple concurrent browsers
@@ -61,15 +137,66 @@ Open <http://localhost:3000>. `bun run dev` and `bun run start` both bind `127.0
 ## Development
 
 ```bash
+bun run check:fast  # typecheck, lint (zero warnings), format check, knip, tests
+bun run check       # what CI runs, exactly: check:fast, production dependency
+                    # audit (hard fail), build, smoke against next start, the
+                    # axe accessibility gate, smoke against next dev, every QA
+                    # phase at 10/10
+
 bun run typecheck   # tsc --noEmit
 bun run lint        # eslint, zero warnings
 bun run test        # bun test
+bun run audit:prod  # bun audit --prod --audit-level=high
 bun run build       # next build
-bun run check       # all of the above
-
+bun run smoke       # boots the dev server and asserts every route responds
+bun run smoke:prod  # same against the production server
+bun run a11y        # axe-core in headless Chrome against the built app: the bench
+                    # (inspector open too), the mini window and the report, each in
+                    # both themes; serious or critical violations fail
 bun run qa 0        # QA gate for a phase (0-4)
 bun run qa all      # every phase; exits non-zero unless each scores 10/10
 ```
+
+Tests call the production entry points directly: every route handler, server
+action and the sampler run against recorded tool output installed through two
+seams, `__setProbeImpl` in `src/lib/probe.ts` and `__setHeadersProvider` in
+`src/lib/guard.ts` (see `tests/fixtures.ts`). Coverage is computed on every
+run and `bunfig.toml` fails the suite below 85% lines or 90% functions.
+
+`bun run dev` runs `scripts/preflight.mjs` first. It fails in a few milliseconds,
+with the reason, when Node is running under Rosetta on an Apple Silicon Mac or
+the lightningcss binary for this architecture is missing.
+
+A lefthook pre-commit hook (installed by `bun install` through the `prepare`
+script) runs Prettier, ESLint and the typecheck on staged files. `bun run format`
+rewrites; `bun run knip` reports unused files, exports and dependencies.
+
+CI (`.github/workflows/ci.yml`) calls `bun run check`, so local green and CI
+green mean the same thing. Bun is pinned through `packageManager`; actions are
+pinned to commit SHAs; Dependabot opens grouped weekly updates.
+
+### Troubleshooting: every page returns HTTP 500 on localhost
+
+If the dev server boots but every route is a 500 and the log says
+`Cannot find module '../lightningcss.darwin-x64.node'`, Node is running under
+Rosetta on an Apple Silicon Mac. `bun install` only fetches the native
+`lightningcss-darwin-arm64` binary, so an x86_64 Node process cannot load it.
+Do not add the x64 binary as a dependency (that was tried and reverted as M-13);
+fix the launch environment instead:
+
+- Check with `node -p process.arch` from the same shell or launcher that starts
+  the app. It must print `arm64`.
+- A universal Node such as `/usr/local/bin/node` picks the x86_64 slice whenever
+  its parent was launched with "Open using Rosetta". Untick that in Finder's
+  Get Info for the launcher app, or prefix the command with `arch -arm64`.
+- Next 16 keeps a per-project dev lock. A broken server left on port 3000 makes
+  every other `next dev` here (including `bun run smoke`) exit with code 1
+  until it is killed. The smoke script now names the PID holding the lock.
+- One run under Rosetta poisons the Turbopack dev cache: the failed x64 CSS
+  transform is cached, so pages keep returning 500 even after Node runs
+  natively. Delete `.next/dev` once and start again.
+- `bun run dev` runs `scripts/preflight.mjs` first and refuses to start under
+  Rosetta, so this failure now surfaces as a one-line error instead of 500s.
 
 ### Architecture
 
@@ -81,7 +208,8 @@ bun run qa all      # every phase; exits non-zero unless each scores 10/10
 | `src/lib/guard.ts` | Loopback Host/Origin enforcement, applied per handler |
 | `src/lib/scoring.ts` | Health and privacy rubrics, unit-tested against fixtures |
 | `src/lib/schemas.ts` | Runtime validation of every API response |
-| `src/hooks/use-polling.ts` | Completion-driven polling with abort, overlap and visibility guards |
+| `src/hooks/use-stream.ts` | The stats transport: a server-sent event stream read with fetch, reconnecting and visibility-aware, with polling's state shape |
+| `src/hooks/use-polling.ts` | Completion-driven polling with abort, overlap and visibility guards, for the slower panels |
 | `scripts/qa-gate.mjs` | Phase-scoped quality gates |
 
 | Endpoint | Purpose |

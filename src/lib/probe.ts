@@ -33,10 +33,37 @@ export type ProbeStatus = Probe<never>["status"];
 
 export const DEFAULT_TIMEOUT_MS = 5_000;
 
+export type ProbeFn = (
+  file: string,
+  args: readonly string[],
+  timeoutMs?: number,
+) => Promise<Probe<string>>;
+
+/**
+ * Test seam. Tests install a fake here so route handlers, server actions and
+ * the sampler run against fixture output instead of the live machine. Kept as
+ * a delegating wrapper rather than a module mock, because Bun's module mocks
+ * are process-wide and would leak into the tests that exercise the real probe.
+ */
+let impl: ProbeFn | null = null;
+
+export function __setProbeImpl(fn: ProbeFn | null): void {
+  impl = fn;
+}
+
 export async function probe(
   file: string,
   args: readonly string[],
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<Probe<string>> {
+  if (impl) return impl(file, args, timeoutMs);
+  return realProbe(file, args, timeoutMs);
+}
+
+async function realProbe(
+  file: string,
+  args: readonly string[],
+  timeoutMs: number,
 ): Promise<Probe<string>> {
   try {
     const { stdout } = await pExecFile(file, [...args], {
@@ -74,11 +101,6 @@ export async function probe(
   }
 }
 
-/** Convenience: the value when ok, otherwise null. Use only where absence is meaningful. */
-export function valueOr<T>(p: Probe<T>, fallback: T): T {
-  return p.status === "ok" ? p.value : fallback;
-}
-
 export function isOk<T>(p: Probe<T>): p is { status: "ok"; value: T } {
   return p.status === "ok";
 }
@@ -86,7 +108,9 @@ export function isOk<T>(p: Probe<T>): p is { status: "ok"; value: T } {
 /** True when a value is present, whether complete or a flagged lower bound. */
 export function hasValue<T>(
   p: Probe<T>,
-): p is { status: "ok"; value: T } | { status: "partial"; value: T; reason: "timeout" | "denied" | "failed" } {
+): p is
+  | { status: "ok"; value: T }
+  | { status: "partial"; value: T; reason: "timeout" | "denied" | "failed" } {
   return p.status === "ok" || p.status === "partial";
 }
 

@@ -67,14 +67,16 @@ async function measure(target: CleanupTarget): Promise<Measured> {
   const size = kb * 1024;
   if (size < target.minSize) return { item: null, unavailable: null };
 
-  const fileCount = hasValue(countRes)
-    ? countRes.value.split("\n").filter(Boolean).length
-    : null;
+  const fileCount = hasValue(countRes) ? countRes.value.split("\n").filter(Boolean).length : null;
 
   // A partial measurement is shown, but declared as a lower bound.
-  const sizePartial = sizeRes.status === "partial"
-    ? { check: `${target.name} (size, partial — some paths unreadable)`, reason: sizeRes.reason as ProbeStatus }
-    : null;
+  const sizePartial =
+    sizeRes.status === "partial"
+      ? {
+          check: `${target.name} (size, partial — some paths unreadable)`,
+          reason: sizeRes.reason as ProbeStatus,
+        }
+      : null;
 
   return {
     item: {

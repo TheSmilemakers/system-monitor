@@ -36,22 +36,52 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function requestWithHost(path, host) {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: "127.0.0.1", port: PORT, path, method: "GET", headers: { Host: host }, timeout: 60_000 },
+      {
+        host: "127.0.0.1",
+        port: PORT,
+        path,
+        method: "GET",
+        headers: { Host: host },
+        timeout: 60_000,
+      },
       (res) => {
         res.resume();
         res.on("end", () => resolve(res.statusCode));
       },
     );
-    req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("timeout"));
+    });
     req.on("error", reject);
     req.end();
   });
 }
 
-async function waitForBoot(child) {
+/**
+ * Explain an early exit instead of reporting a bare exit code.
+ *
+ * Next 16 holds a per-project dev lock (not per port): any other `next dev`
+ * in this directory makes ours exit 1 immediately. That message used to be
+ * captured and thrown away, which hid a real outage behind "code 1".
+ */
+function explainEarlyExit(code, serverLog) {
+  const plain = serverLog.replace(/\x1b\[[0-9;]*m/g, "");
+  const lock = plain.match(/Another next dev server is already running[\s\S]*?PID:\s*(\d+)/);
+  if (lock) {
+    return (
+      `server exited early (code ${code}): another next dev server holds this project's dev lock (PID ${lock[1]}).\n` +
+      `  Stop it (kill ${lock[1]}) or run the smoke test with --prod, which uses next start and does not take the lock.`
+    );
+  }
+  const tail = plain.trim().split("\n").slice(-15).join("\n  ");
+  return `server exited early (code ${code}). Last server output:\n  ${tail}`;
+}
+
+async function waitForBoot(child, getLog) {
   const deadline = Date.now() + BOOT_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`server exited early (code ${child.exitCode})`);
+    if (child.exitCode !== null) throw new Error(explainEarlyExit(child.exitCode, getLog()));
     try {
       const res = await fetch(`${BASE}/api/stats`, { signal: AbortSignal.timeout(5000) });
       if (res.status < 500) return true;
@@ -71,18 +101,31 @@ async function main() {
   });
 
   let serverLog = "";
-  child.stdout.on("data", (d) => { serverLog += d.toString(); });
-  child.stderr.on("data", (d) => { serverLog += d.toString(); });
+  child.stdout.on("data", (d) => {
+    serverLog += d.toString();
+  });
+  child.stderr.on("data", (d) => {
+    serverLog += d.toString();
+  });
 
-  const cleanup = () => { try { child.kill("SIGTERM"); } catch { /* already gone */ } };
+  const cleanup = () => {
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      /* already gone */
+    }
+  };
   process.on("exit", cleanup);
-  process.on("SIGINT", () => { cleanup(); process.exit(130); });
+  process.on("SIGINT", () => {
+    cleanup();
+    process.exit(130);
+  });
 
   try {
     console.log(`\n\x1b[1mSmoke test (${PROD ? "production" : "development"})\x1b[0m`);
     console.log("─".repeat(74));
 
-    const booted = await waitForBoot(child);
+    const booted = await waitForBoot(child, () => serverLog);
     record("server boots", booted, booted ? `listening on ${BASE}` : "did not become ready");
     if (!booted) throw new Error("boot failed");
 
@@ -102,13 +145,46 @@ async function main() {
 
     // A Turbopack/webpack panic surfaces in the log even when a status looks sane.
     const panicked = /FATAL|panic|Failed to write app endpoint/i.test(serverLog);
-    record("no bundler panic in server output", !panicked,
-      panicked ? serverLog.split("\n").find((l) => /FATAL|panic/i.test(l))?.slice(0, 120) : "clean");
+    record(
+      "no bundler panic in server output",
+      !panicked,
+      panicked
+        ? serverLog
+            .split("\n")
+            .find((l) => /FATAL|panic/i.test(l))
+            ?.slice(0, 120)
+        : "clean",
+    );
 
     for (const route of ["/api/stats", "/api/scan", "/api/cleanup", "/api/privacy"]) {
       const res = await fetch(`${BASE}${route}`, { signal: AbortSignal.timeout(60_000) });
       record(`${route} responds`, res.status === 200, `HTTP ${res.status}`);
     }
+
+    // The event stream: the bench's transport. A first stats event must arrive,
+    // typed as a stream and uncacheable, and cancelling the body must not hang.
+    const streamRes = await fetch(`${BASE}/api/stream?interval=3000`, {
+      signal: AbortSignal.timeout(60_000),
+    });
+    const streamType = streamRes.headers.get("content-type") ?? "";
+    let firstEvent = "";
+    if (streamRes.body) {
+      const reader = streamRes.body.getReader();
+      const dec = new TextDecoder();
+      while (!firstEvent.includes("\n\n")) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        firstEvent += dec.decode(value, { stream: true });
+      }
+      await reader.cancel().catch(() => {});
+    }
+    record(
+      "/api/stream pushes a first stats event",
+      streamRes.status === 200 &&
+        streamType.includes("text/event-stream") &&
+        firstEvent.startsWith("event: stats\n"),
+      `HTTP ${streamRes.status}, ${streamType || "no content type"}, ${firstEvent ? `${firstEvent.length} bytes` : "no event"}`,
+    );
 
     // The security boundary, exercised against the running server.
     // `fetch` silently drops Host (a forbidden header), so it cannot test this —
@@ -126,7 +202,11 @@ async function main() {
     const cc = headers.get("cache-control") ?? "";
     record("system JSON is not cacheable", cc.includes("no-store"), cc || "absent");
     const csp = headers.get("content-security-policy") ?? "";
-    record("CSP forbids framing", csp.includes("frame-ancestors 'none'"), csp ? "present" : "absent");
+    record(
+      "CSP forbids framing",
+      csp.includes("frame-ancestors 'none'"),
+      csp ? "present" : "absent",
+    );
   } finally {
     cleanup();
     await sleep(300);
