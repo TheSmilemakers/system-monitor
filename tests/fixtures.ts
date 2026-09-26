@@ -89,6 +89,16 @@ export const LSOF_OUTPUT = [
   "rapportd    300 rajan   10u  IPv4 0x3               0t0  TCP *:49152 (LISTEN)",
 ].join("\n");
 
+/** `lsof -a -d txt -Fpn -p 95665,54357`: the executable is the first text file per pid. */
+export const LSOF_TXT_OUTPUT = [
+  "p95665",
+  "n/Users/rajan/.nvm/versions/node/v22.17.0/bin/node",
+  "n/usr/lib/dyld",
+  "p54357",
+  "n/Applications/Claude.app/Contents/MacOS/Claude",
+  "n/usr/lib/dyld",
+].join("\n");
+
 export const USER_AGENTS_OUTPUT = "com.example.updater.plist\ncom.google.keystone.agent.plist";
 export const SYS_AGENTS_OUTPUT =
   "com.apple.foo.plist\ncom.docker.vmnetd.plist\ncom.acme.helper.plist";
@@ -168,6 +178,7 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
       case "whoami":
         return ok("rajan");
       case "lsof":
+        if (args[0] === "-a") return ok(LSOF_TXT_OUTPUT);
         return ok(LSOF_OUTPUT);
       case "ls": {
         const target = args[0] ?? "";

@@ -1,3 +1,6 @@
+import os from "node:os";
+
+import { attachExecutablePaths } from "./exec-path";
 import { identityFor, parseElapsed, type TrustState } from "./identity";
 import {
   finiteInt,
@@ -88,6 +91,8 @@ export interface StatsSample {
   disk: { total: string; used: string; available: string; percent: number };
   processes: { total: number; threads: number; top: ProcessInfo[] };
   uptime: string;
+  /** The account this server runs as; the client uses it for the "mine" filter. */
+  currentUser: string;
   battery: { percent: number; charging: boolean } | null;
   history: HistoryPoint[];
   alerts: ProcessAlert[];
@@ -235,6 +240,8 @@ export async function sample(): Promise<StatsSample> {
 
   // --- Processes ---
   const allProcs = hasValue(psRes) ? parsePsDetailed(psRes.value) : [];
+  // Rows whose `comm` is a self-set title get their executable from lsof.
+  await attachExecutablePaths(allProcs);
 
   // --- Battery ---
   const battRaw = hasValue(battRes) ? battRes.value : "";
@@ -323,6 +330,7 @@ export async function sample(): Promise<StatsSample> {
           .replace(/,\s*\d+ users?.*/, "")
           .trim()
       : "",
+    currentUser: safeUsername(),
     battery: battPct
       ? { percent: finiteInt(battPct[1], 0), charging: battRaw.includes("AC Power") }
       : null,
@@ -330,6 +338,14 @@ export async function sample(): Promise<StatsSample> {
     alerts,
     timestamp: now,
   };
+}
+
+function safeUsername(): string {
+  try {
+    return os.userInfo().username;
+  } catch {
+    return "";
+  }
 }
 
 /** Test seam. */

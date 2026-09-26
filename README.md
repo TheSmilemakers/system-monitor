@@ -17,6 +17,14 @@ bun run dev
 
 Open <http://localhost:3000>. `bun run dev` and `bun run start` both bind `127.0.0.1`.
 
+The bench: vitals on the left (seven-segment numerals and LED meters at retro
+level 1, the default), the process workbench on the right. Every process shows
+its code-signing trust (Apple, App Store, signed, ad-hoc, unsigned), publisher
+and age. Click a name or press Enter to open the inspector; ⌘K opens the
+command palette. In the table, j and k move, i inspects, x asks to terminate,
+/ focuses search. Theme (night shift or daylight) and retro intensity (clean,
+instrument, tube) are in the header and remembered per browser.
+
 ## Features
 
 ### Real-time dashboard

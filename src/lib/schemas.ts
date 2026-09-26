@@ -73,6 +73,7 @@ export interface SystemStats {
   disk: { total: string; used: string; available: string; percent: number };
   processes: { total: number; threads: number; top: ProcessInfo[] };
   uptime: string;
+  currentUser: string;
   battery: { percent: number; charging: boolean } | null;
   history: HistoryPoint[];
   alerts: ProcessAlert[];
@@ -243,6 +244,7 @@ export function parseStats(raw: unknown): SystemStats {
       top,
     },
     uptime: str(raw.uptime) ? raw.uptime : "",
+    currentUser: str(raw.currentUser) ? raw.currentUser : "",
     battery:
       isObj(raw.battery) && num(raw.battery.percent)
         ? {

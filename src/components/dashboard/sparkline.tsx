@@ -18,9 +18,9 @@ export interface SparklineProps {
   max: number;
   color: string;
   label: string;
-  unit?: string;
-  warnAt?: number;
-  critAt?: number;
+  unit?: string | undefined;
+  warnAt?: number | undefined;
+  critAt?: number | undefined;
 }
 
 export function Sparkline({ data, max, color, label, unit = "", warnAt, critAt }: SparklineProps) {
