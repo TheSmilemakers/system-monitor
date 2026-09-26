@@ -46,4 +46,4 @@ LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchSe
 [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$APP" >/dev/null 2>&1 || true
 
 echo "built $APP"
-echo "project: \${SM_PROJECT_DIR}, else $HOME/Library/Application Support/system-monitor/project, else ~/projects/system-monitor"
+echo "project: \${SM_PROJECT_DIR}, else $HOME/Library/Application Support/system-monitor/project, else ~/projects/system-monitor, else ~/.local/share/system-monitor"

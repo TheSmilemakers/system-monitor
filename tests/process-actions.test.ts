@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 
 import { processIdentity, sameIdentity, type ProcessIdentity } from "@/lib/process-identity";
 
+const REAL_PS_TIMEOUT_MS = 15_000;
+
 /**
  * M-01 regression suite.
  *
@@ -32,30 +34,45 @@ describe("process identity", () => {
     expect(await processIdentity(Number.NaN)).toBeNull();
   });
 
-  test("returns null for a pid that does not exist", async () => {
-    expect(await processIdentity(999_999)).toBeNull();
-  });
+  // These read the real process table with `ps`; under load (a server
+  // shutting down beside the gate) one read has taken longer than the
+  // default 5 s, so they get the probe's own budget.
+  test(
+    "returns null for a pid that does not exist",
+    async () => {
+      expect(await processIdentity(999_999)).toBeNull();
+    },
+    REAL_PS_TIMEOUT_MS,
+  );
 
-  test("identifies a live process with a user and start time", async () => {
-    const child = spawn("sleep", ["5"]);
-    await sleep(200);
-    const id = await processIdentity(child.pid!);
-    expect(id).not.toBeNull();
-    expect(id!.pid).toBe(child.pid!);
-    expect(id!.user.length).toBeGreaterThan(0);
-    expect(id!.startedAt.length).toBeGreaterThan(0);
-    child.kill("SIGKILL");
-  });
+  test(
+    "identifies a live process with a user and start time",
+    async () => {
+      const child = spawn("sleep", ["5"]);
+      await sleep(200);
+      const id = await processIdentity(child.pid!);
+      expect(id).not.toBeNull();
+      expect(id!.pid).toBe(child.pid!);
+      expect(id!.user.length).toBeGreaterThan(0);
+      expect(id!.startedAt.length).toBeGreaterThan(0);
+      child.kill("SIGKILL");
+    },
+    REAL_PS_TIMEOUT_MS,
+  );
 
-  test("identity is stable across repeated reads", async () => {
-    const child = spawn("sleep", ["5"]);
-    await sleep(200);
-    const a = await processIdentity(child.pid!);
-    await sleep(150);
-    const b = await processIdentity(child.pid!);
-    expect(sameIdentity(a!, b!)).toBe(true);
-    child.kill("SIGKILL");
-  });
+  test(
+    "identity is stable across repeated reads",
+    async () => {
+      const child = spawn("sleep", ["5"]);
+      await sleep(200);
+      const a = await processIdentity(child.pid!);
+      await sleep(150);
+      const b = await processIdentity(child.pid!);
+      expect(sameIdentity(a!, b!)).toBe(true);
+      child.kill("SIGKILL");
+    },
+    REAL_PS_TIMEOUT_MS,
+  );
 
   test("sameIdentity rejects a reused pid with a different start time", () => {
     const a: ProcessIdentity = { pid: 42, user: "rajan", startedAt: "Mon Jul 28 09:00:00 2026" };

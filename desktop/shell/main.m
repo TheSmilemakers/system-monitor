@@ -3,8 +3,9 @@
 // A window of its own around the bench instead of a browser tab. It starts
 // the server (production build, built on first run), shows the bench in a
 // WebKit view, posts macOS notifications for alarms as itself rather than
-// through osascript, keeps an alarm count on the dock badge, and stops the
-// server it started when it quits. Objective-C so that clang from the
+// through osascript, keeps an alarm count on the dock badge and beside a
+// menu bar icon, stays in the menu bar when the window is closed, and stops
+// the server it started when it quits. Objective-C so that clang from the
 // Command Line Tools builds it; see scripts/build-shell.sh.
 
 #import <AppKit/AppKit.h>
@@ -30,7 +31,8 @@ static void SMLog(NSString *message) {
 }
 
 /// The project to run: SM_PROJECT_DIR, then the `project` file beside the
-/// monitor's state (a path on one line), then the usual checkout.
+/// monitor's state (a path on one line), then the developer checkout, then
+/// where scripts/install.sh puts the source.
 static NSString *SMProjectDir(void) {
   NSFileManager *fm = [NSFileManager defaultManager];
   NSString *env = [[NSProcessInfo processInfo] environment][@"SM_PROJECT_DIR"];
@@ -39,7 +41,9 @@ static NSString *SMProjectDir(void) {
   NSString *text = [NSString stringWithContentsOfFile:pointer encoding:NSUTF8StringEncoding error:nil];
   NSString *dir = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
   if (dir.length && [fm fileExistsAtPath:[dir stringByAppendingPathComponent:@"package.json"]]) return dir;
-  return [NSHomeDirectory() stringByAppendingPathComponent:@"projects/system-monitor"];
+  NSString *checkout = [NSHomeDirectory() stringByAppendingPathComponent:@"projects/system-monitor"];
+  if ([fm fileExistsAtPath:[checkout stringByAppendingPathComponent:@"package.json"]]) return checkout;
+  return [NSHomeDirectory() stringByAppendingPathComponent:@".local/share/system-monitor"];
 }
 
 /// One GET, synchronously, from a background queue. Nil when the server is not there.
@@ -239,6 +243,8 @@ static BOOL SMNotificationsOn(void) {
 @property(nonatomic, strong) NSMutableSet<NSString *> *seen;
 @property(nonatomic) NSInteger unread;
 @property(nonatomic, strong) NSTimer *timer;
+/// Called on the main queue whenever the unread count changes.
+@property(nonatomic, copy) void (^unreadChanged)(NSInteger unread);
 @end
 
 @implementation SMAlarms
@@ -261,10 +267,13 @@ static BOOL SMNotificationsOn(void) {
   [self poll];
 }
 
-- (void)clearUnread {
-  self.unread = 0;
-  [NSApp dockTile].badgeLabel = nil;
+- (void)setUnreadCount:(NSInteger)count {
+  self.unread = count;
+  [NSApp dockTile].badgeLabel = count > 0 ? [@(count) stringValue] : nil;
+  if (self.unreadChanged) self.unreadChanged(count);
 }
+
+- (void)clearUnread { [self setUnreadCount:0]; }
 
 - (void)poll {
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
@@ -286,10 +295,7 @@ static BOOL SMNotificationsOn(void) {
     if (urgent.count == 0) return;
     BOOL on = SMNotificationsOn();
     dispatch_async(dispatch_get_main_queue(), ^{
-      if (![NSApp isActive]) {
-        self.unread += (NSInteger)urgent.count;
-        [NSApp dockTile].badgeLabel = [@(self.unread) stringValue];
-      }
+      if (![NSApp isActive] || ![NSApp keyWindow]) [self setUnreadCount:self.unread + (NSInteger)urgent.count];
       if (!on) return;
       UNMutableNotificationContent *content = [UNMutableNotificationContent new];
       content.title = @"System Monitor";
@@ -317,6 +323,8 @@ static BOOL SMNotificationsOn(void) {
 @property(nonatomic, strong) SMServer *server;
 @property(nonatomic, strong) SMAlarms *alarms;
 @property(nonatomic, strong) NSMenuItem *muteItem;
+@property(nonatomic, strong) NSMenuItem *statusMuteItem;
+@property(nonatomic, strong) NSStatusItem *statusItem;
 @property(nonatomic, strong) NSTimer *loadWatchdog;
 @property(nonatomic, strong) NSTimer *retryTimer;
 @property(nonatomic) BOOL benchLoaded;
@@ -399,11 +407,51 @@ static BOOL SMNotificationsOn(void) {
   [NSApp setMainMenu:main];
 }
 
+/// The menu bar item: a pulse icon, the unread alarm count beside it, and a
+/// menu that reaches the window and the Monitor menu's items when the window
+/// is closed. Closing the window leaves the monitor running here.
+- (void)buildStatusItem {
+  self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
+  NSImage *icon = [NSImage imageWithSystemSymbolName:@"waveform.path.ecg" accessibilityDescription:@"System Monitor"];
+  icon.template = YES;
+  self.statusItem.button.image = icon;
+  self.statusItem.button.imagePosition = NSImageLeft;
+  self.statusItem.button.toolTip = @"System Monitor";
+
+  NSMenu *menu = [NSMenu new];
+  [menu addItemWithTitle:@"Show System Monitor" action:@selector(showWindow:) keyEquivalent:@""];
+  [menu addItemWithTitle:@"Shift Report" action:@selector(openReport:) keyEquivalent:@""];
+  [menu addItem:[NSMenuItem separatorItem]];
+  self.statusMuteItem = [[NSMenuItem alloc] initWithTitle:@"Mute Notifications" action:@selector(toggleMute:) keyEquivalent:@""];
+  [menu addItem:self.statusMuteItem];
+  [menu addItemWithTitle:@"Rebuild and Restart Server" action:@selector(rebuild:) keyEquivalent:@""];
+  [menu addItem:[NSMenuItem separatorItem]];
+  [menu addItemWithTitle:@"Quit System Monitor" action:@selector(terminate:) keyEquivalent:@""];
+  self.statusItem.menu = menu;
+
+  __weak SMAppDelegate *weakSelf = self;
+  self.alarms.unreadChanged = ^(NSInteger unread) {
+    weakSelf.statusItem.button.title = unread > 0 ? [NSString stringWithFormat:@" %ld", (long)unread] : @"";
+  };
+}
+
+- (void)setMuted:(BOOL)muted {
+  NSControlStateValue state = muted ? NSControlStateValueOn : NSControlStateValueOff;
+  self.muteItem.state = state;
+  self.statusMuteItem.state = state;
+}
+
 - (void)refreshMuteItem {
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
     BOOL on = SMNotificationsOn();
-    dispatch_async(dispatch_get_main_queue(), ^{ self.muteItem.state = on ? NSControlStateValueOff : NSControlStateValueOn; });
+    dispatch_async(dispatch_get_main_queue(), ^{ [self setMuted:!on]; });
   });
+}
+
+- (void)showWindow:(id)sender {
+  [self.window makeKeyAndOrderFront:nil];
+  [NSApp activateIgnoringOtherApps:YES];
+  [self.alarms clearUnread];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
@@ -412,6 +460,7 @@ static BOOL SMNotificationsOn(void) {
   SMLog([NSString stringWithFormat:@"shell starting; project %@", self.server.dir]);
   [UNUserNotificationCenter currentNotificationCenter].delegate = self;
   [self buildMenu];
+  [self buildStatusItem];
 
   WKWebViewConfiguration *config = [WKWebViewConfiguration new];
   [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
@@ -426,6 +475,7 @@ static BOOL SMNotificationsOn(void) {
                                                 defer:NO];
   self.window.title = @"System Monitor";
   self.window.minSize = NSMakeSize(720, 480);
+  self.window.releasedWhenClosed = NO;  // closing hides; the menu bar item brings it back
   [self.window setFrameAutosaveName:@"SystemMonitorMain"];
   self.window.contentView = self.web;
   self.window.backgroundColor = [NSColor colorWithRed:0.02 green:0.024 blue:0.031 alpha:1];
@@ -457,7 +507,7 @@ static BOOL SMNotificationsOn(void) {
 - (void)toggleMute:(id)sender {
   BOOL mute = self.muteItem.state == NSControlStateValueOff;
   SMPost(@"/api/settings", @{ @"notifications" : @(!mute) });
-  self.muteItem.state = mute ? NSControlStateValueOn : NSControlStateValueOff;
+  [self setMuted:mute];
 }
 - (void)rebuild:(id)sender {
   [self showStatus:@"Rebuilding."];
@@ -472,8 +522,17 @@ static BOOL SMNotificationsOn(void) {
   });
 }
 
-- (void)applicationDidBecomeActive:(NSNotification *)notification { [self.alarms clearUnread]; }
-- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return YES; }
+- (void)applicationDidBecomeActive:(NSNotification *)notification {
+  if (self.window.isVisible) [self.alarms clearUnread];
+}
+// The monitor keeps running from the menu bar after the window is closed;
+// Quit (⌘Q, the dock, or the menu bar item) is what stops it.
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return NO; }
+// Clicking the dock icon with the window closed brings it back.
+- (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag {
+  if (!flag) [self showWindow:nil];
+  return YES;
+}
 
 // Stop the server off the main thread, so the window closes at once and the
 // app is not left half quit while next-server winds down.
