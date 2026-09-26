@@ -137,9 +137,11 @@ describe("diffSnapshots: the third-stage rules", () => {
   });
 
   test("privacy grants: high-risk is an alarm, others a caution, revocation is information", () => {
+    // Screen Recording was readable and empty before; a service seen for the
+    // first time is not judged, since newly readable is not newly granted.
     const before = snap({
       tccReadable: true,
-      permissions: { kTCCServiceCamera: ["us.zoom.xos"] },
+      permissions: { kTCCServiceScreenCapture: [], kTCCServiceCamera: ["us.zoom.xos"] },
     });
     const after = snap({
       tccReadable: true,

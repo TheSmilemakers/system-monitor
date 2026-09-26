@@ -93,7 +93,7 @@ describe("GET /api/stats", () => {
     expect(stats.cpu.cores).toBe(10);
     expect(stats.memory.totalGB).toBe(16);
     expect(stats.swap.percent).toBe(25);
-    expect(stats.disk.percent).toBe(2);
+    expect(stats.disk.percent).toBe(75); // the Data volume, not the sealed system volume
     expect(stats.processes.top[0]?.command).toBe("fileproviderd");
     expect(stats.processes.top[0]?.pid).toBe(648);
     expect(stats.battery).toEqual({ percent: 80, charging: true });
@@ -176,6 +176,17 @@ describe("GET /api/scan", () => {
     expect(scan.summary?.electronApps).toBe(1);
     // com.apple.* system items are excluded from the startup count.
     expect(scan.summary?.launchItems).toBe(4);
+  });
+
+  test("a hog the knowledge base knows is advised from the knowledge base, never 'stuck'", async () => {
+    const scan = parseScan(await (await getScan()).json());
+    const hog = scan.findings.find(
+      (f) => f.category === "Resource Hog" && f.title.startsWith("fileproviderd"),
+    );
+    expect(hog?.severity).toBe("warning");
+    expect(hog?.recommendation).toMatch(/launchd relaunches it/);
+    expect(hog?.recommendation).not.toMatch(/stuck/);
+    expect(hog?.detail).toContain("Coordinates cloud file providers");
   });
 
   test("withholds the score and findings when the process list is unavailable", async () => {

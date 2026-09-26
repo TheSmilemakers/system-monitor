@@ -304,6 +304,8 @@ export interface PermissionGrant {
   service: string;
   name: string;
   highRisk: boolean;
+  /** False when the database holding this service could not be read. */
+  readable: boolean;
   clients: string[];
 }
 
@@ -775,6 +777,7 @@ export function parsePermissions(raw: unknown): PermissionsReport {
     service: str(g.service) ? g.service : "",
     name: str(g.name) ? g.name : "",
     highRisk: bool(g.highRisk) ? g.highRisk : false,
+    readable: bool(g.readable) ? g.readable : true,
     clients: strList(g.clients),
   }));
   return {

@@ -4,7 +4,7 @@ import { networkReport } from "@/lib/network";
 import { posture } from "@/lib/posture";
 import { getMachineInfo } from "@/lib/probe";
 import { buildReport } from "@/lib/report";
-import { lastProcesses, sample } from "@/lib/sampler";
+import { lastProcesses, lastUptime, sample } from "@/lib/sampler";
 import { singleFlight } from "@/lib/single-flight";
 
 /**
@@ -39,7 +39,7 @@ export async function GET() {
     return buildReport({
       now,
       machine: machine.model,
-      uptime: stats?.uptime ?? "",
+      uptime: stats?.uptime ?? lastUptime(),
       lamps,
       processes: stats?.processes.top ?? lastProcesses(),
       events,

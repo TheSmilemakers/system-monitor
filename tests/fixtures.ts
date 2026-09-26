@@ -40,6 +40,11 @@ export const DF_OUTPUT = [
   "/dev/disk3s1s1   926Gi    12Gi   800Gi     2%  500000 8000000000    0%   /",
 ].join("\n");
 
+export const DF_DATA_OUTPUT = [
+  "Filesystem        Size    Used   Avail Capacity iused      ifree %iused  Mounted on",
+  "/dev/disk3s1     926Gi   675Gi   227Gi    75% 4000000 2000000000    0%   /System/Volumes/Data",
+].join("\n");
+
 /** `ps aux` column order: USER PID %CPU %MEM VSZ RSS TT STAT STARTED TIME COMMAND */
 export const PS_OUTPUT = [
   "USER   PID  %CPU %MEM      VSZ    RSS   TT  STAT STARTED      TIME COMMAND",
@@ -284,7 +289,7 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         return { status: "failed", error: `unexpected sysctl ${key}` };
       }
       case "df":
-        return ok(DF_OUTPUT);
+        return ok(args[1] === "/System/Volumes/Data" ? DF_DATA_OUTPUT : DF_OUTPUT);
       case "ps":
         // `ps -o user=,lstart= -p <pid>` is process identity; `-axwwo` is the
         // sampler's detailed list; `ps aux` is what the scans read.

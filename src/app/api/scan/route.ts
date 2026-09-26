@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { lookupKnowledgeBase } from "@/lib/explain";
 import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
 import { hasValue, isOk, probe, type ProbeStatus } from "@/lib/probe";
 import { parsePsAux } from "@/lib/sampler";
@@ -223,18 +224,31 @@ async function scan() {
   let criticalHogs = 0;
   let warningHogs = 0;
   for (const hog of hogs) {
-    const critical = hog.cpu > 50 || hog.rss > 1024 ** 3;
+    // What the knowledge base says about this process decides the advice: a
+    // system daemon that launchd keeps alive is never "stuck, restart it".
+    const known = lookupKnowledgeBase(hog.command);
+    const protectedDaemon = known?.kill === "avoid" || known?.kill === "restarts";
+    const critical = !protectedDaemon && (hog.cpu > 50 || hog.rss > 1024 ** 3);
     if (critical) criticalHogs++;
     else warningHogs++;
+    const advice = [known?.normal, known?.check].filter((s): s is string => Boolean(s)).join(" ");
     findings.push({
       severity: critical ? "critical" : "warning",
       category: "Resource Hog",
       title: `${hog.command} — ${hog.cpu.toFixed(1)}% of one core, ${(hog.rss / 1024 ** 2).toFixed(0)}MB`,
-      detail: `PID ${hog.pid} is consuming significant resources.`,
-      processes: [toRef(hog)],
-      recommendation: critical
-        ? "This process may be stuck. Consider restarting it."
-        : "High memory use. Restart the app if it has been running a long time.",
+      detail: known
+        ? `PID ${hog.pid}. ${known.what}`
+        : `PID ${hog.pid} is consuming significant resources.`,
+      // A daemon that must not be killed gets no kill target.
+      processes: known?.kill === "avoid" ? [] : [toRef(hog)],
+      recommendation:
+        known?.kill === "avoid"
+          ? `Part of macOS; do not terminate it. ${advice}`.trim()
+          : known?.kill === "restarts"
+            ? `launchd relaunches it if terminated, so killing it rarely helps. ${advice}`.trim()
+            : critical
+              ? "This process may be stuck. Consider restarting it."
+              : "High memory use. Restart the app if it has been running a long time.",
     });
   }
 

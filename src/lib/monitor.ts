@@ -263,15 +263,17 @@ async function cronInventory(): Promise<Record<string, string>> {
   return out;
 }
 
-/** Privacy grants per service; null when the database is protected from us. */
+/** Privacy grants per readable service; null when no database opened at all. */
 async function permissionInventory(): Promise<Record<string, string[]> | null> {
   const out: Record<string, string[]> = {};
+  let any = false;
   for (const svc of TCC_SERVICES) {
-    const clients = await grantsFor(svc.service);
-    if (clients === null) return null;
+    const clients = await grantsFor(svc.service, svc.scope);
+    if (clients === null) continue;
     out[svc.service] = [...clients].sort();
+    any = true;
   }
-  return out;
+  return any ? out : null;
 }
 
 export async function takeSnapshot(inputs: SnapshotInputs, now = Date.now()): Promise<Snapshot> {
@@ -633,16 +635,17 @@ export function diffSnapshots(
     }
   }
 
-  // Privacy grants: judged only when both sides could read the database, so
-  // a protected read never looks like every grant being revoked or given.
-  const prevPerms = prev?.tccReadable ? prev : baseline.tccReadable ? baseline : null;
-  if (curr.tccReadable && prevPerms) {
+  // Privacy grants: a service is judged only when this tick and the previous
+  // tick or the baseline could all read its database, so a protected read
+  // never looks like every grant being revoked or given.
+  if (curr.tccReadable) {
     for (const svc of TCC_SERVICES) {
-      const now = curr.permissions[svc.service] ?? [];
-      const before = new Set([
-        ...(prev?.tccReadable ? (prev.permissions[svc.service] ?? []) : []),
-        ...(baseline.tccReadable ? (baseline.permissions[svc.service] ?? []) : []),
-      ]);
+      const now = curr.permissions[svc.service];
+      if (!now) continue;
+      const prevList = prev?.tccReadable ? prev.permissions[svc.service] : undefined;
+      const baseList = baseline.tccReadable ? baseline.permissions[svc.service] : undefined;
+      if (!prevList && !baseList) continue;
+      const before = new Set([...(prevList ?? []), ...(baseList ?? [])]);
       for (const client of now) {
         if (before.has(client)) continue;
         events.push({
@@ -655,8 +658,8 @@ export function diffSnapshots(
           rule: "permission.granted",
         });
       }
-      if (prev?.tccReadable) {
-        for (const client of prev.permissions[svc.service] ?? []) {
+      if (prevList) {
+        for (const client of prevList) {
           if (now.includes(client)) continue;
           events.push({
             id: newId(ts),

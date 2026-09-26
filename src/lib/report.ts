@@ -55,12 +55,16 @@ export function buildReport(i: ReportInputs): string {
   const out: string[] = [];
   out.push(line("="));
   out.push("SYSTEM MONITOR  SHIFT REPORT");
-  out.push(`${i.machine}   printed ${fmtTime(i.now)}   up ${i.uptime}`);
+  out.push(`${i.machine}   printed ${fmtTime(i.now)}   up ${i.uptime}`.slice(0, WIDTH));
   out.push(line("="));
 
   out.push(...heading("Posture"));
   for (const l of i.lamps)
-    out.push(`${STATE_MARK[l.state] ?? "[ ?? ]"} ${pad(l.label, 14)} ${l.summary}`.trimEnd());
+    out.push(
+      `${STATE_MARK[l.state] ?? "[ ?? ]"} ${pad(l.label, 14)} ${l.summary}`
+        .trimEnd()
+        .slice(0, WIDTH),
+    );
 
   out.push(...heading("Top processes by CPU"));
   out.push(`${pad("PID", 7)}${pad("CPU%", 7)}${pad("MEM%", 6)}${pad("TRUST", 13)}PROCESS`);

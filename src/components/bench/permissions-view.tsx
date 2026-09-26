@@ -66,13 +66,26 @@ export function PermissionsView({ active }: { active: boolean }) {
                   <td className="px-3 py-1.5">
                     <span
                       className="lamp"
-                      data-state={g.highRisk ? (g.clients.length ? "caution" : "ok") : "info"}
+                      data-state={
+                        !g.readable
+                          ? "off"
+                          : g.highRisk
+                            ? g.clients.length
+                              ? "caution"
+                              : "ok"
+                            : "info"
+                      }
                     >
                       <span>{g.name}</span>
                     </span>
                   </td>
                   <td className="px-2 py-1.5">
-                    {g.clients.length === 0 ? (
+                    {!g.readable ? (
+                      <span className="text-amber">
+                        could not read: this service is recorded in the system database, which needs
+                        Full Disk Access
+                      </span>
+                    ) : g.clients.length === 0 ? (
                       <span className="text-muted-foreground">nothing</span>
                     ) : (
                       <ul className="flex flex-wrap gap-x-3 gap-y-0.5">

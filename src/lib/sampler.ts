@@ -80,6 +80,20 @@ const history: HistoryPoint[] = [];
 const hot = new Map<number, HotEntry>();
 
 let lastTop: ProcessInfo[] = [];
+let lastUp = "";
+
+/** The uptime string from the latest sample, for pages that do not sample themselves. */
+export function lastUptime(): string {
+  return lastUp;
+}
+
+/** `uptime` output to the part after "up", without the user count and load. */
+function parseUptime(raw: string): string {
+  return raw
+    .replace(/.*up\s+/, "")
+    .replace(/,\s*\d+ users?.*/, "")
+    .trim();
+}
 
 /** A tape frame: what the table showed at one sample, for rewinding. */
 export interface TapeFrame {
@@ -259,11 +273,13 @@ export function parseVmStat(raw: string, label: string): number {
 export async function sample(): Promise<StatsSample> {
   const machine = await getMachineInfo();
 
-  const [topRes, vmRes, swapRes, dfRes, psRes, battRes, upRes, netRes] = await Promise.all([
+  const [topRes, vmRes, swapRes, dfDataRes, psRes, battRes, upRes, netRes] = await Promise.all([
     probe("top", ["-l", "1", "-n", "0", "-s", "0"], 8_000),
     probe("vm_stat", []),
     probe("sysctl", ["vm.swapusage"]),
-    probe("df", ["-h", "/"]),
+    // The Data volume holds everything the user can fill; "/" is the sealed
+    // system snapshot and reads a few percent used on every Mac.
+    probe("df", ["-h", "/System/Volumes/Data"]),
     probe("ps", ["-axwwo", PS_COLUMNS], 8_000),
     probe("pmset", ["-g", "batt"]),
     probe("uptime", []),
@@ -277,6 +293,8 @@ export async function sample(): Promise<StatsSample> {
   note("cpu/load (top)", topRes.status);
   note("memory (vm_stat)", vmRes.status);
   note("swap (sysctl)", swapRes.status);
+  // Older layouts without a separate Data volume: fall back to the root.
+  const dfRes = hasValue(dfDataRes) ? dfDataRes : await probe("df", ["-h", "/"]);
   note("disk (df)", dfRes.status);
   note("processes (ps)", psRes.status);
   note("battery (pmset)", battRes.status);
@@ -349,6 +367,7 @@ export async function sample(): Promise<StatsSample> {
 
   recordProcessTraces(allProcs, now);
   lastTop = allProcs;
+  lastUp = hasValue(upRes) ? parseUptime(upRes.value) : lastUp;
 
   // --- Alerts by elapsed time and stable identity (M-03, M-17) ---
   const threshold = CPU_ALERT_THRESHOLD_PER_CORE * 100;
@@ -422,12 +441,7 @@ export async function sample(): Promise<StatsSample> {
       threads: threadMatch ? finiteInt(threadMatch[1], 0) : 0,
       top: allProcs,
     },
-    uptime: hasValue(upRes)
-      ? upRes.value
-          .replace(/.*up\s+/, "")
-          .replace(/,\s*\d+ users?.*/, "")
-          .trim()
-      : "",
+    uptime: hasValue(upRes) ? parseUptime(upRes.value) : "",
     currentUser: safeUsername(),
     battery: battPct
       ? { percent: finiteInt(battPct[1], 0), charging: battRaw.includes("AC Power") }
