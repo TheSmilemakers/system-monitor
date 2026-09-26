@@ -25,9 +25,25 @@ const HEIGHT = 168;
  */
 export function Scope({ history, alerts, cores, net }: ScopeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const seenAlerts = useRef<Set<number>>(new Set());
   const reduced = useReducedMotion();
   const traces = useMemo(() => buildTraces(history, cores), [history, cores]);
   const summary = describeScope(traces, history.length);
+
+  // A new alert pid triggers one sync-loss sweep. The class is toggled on the
+  // DOM directly (no state, no re-render) and removed when the sweep ends.
+  useEffect(() => {
+    const frame = frameRef.current;
+    const seen = seenAlerts.current;
+    const fresh = alerts.some((a) => !seen.has(a.pid));
+    seen.clear();
+    for (const a of alerts) seen.add(a.pid);
+    if (!fresh || !frame) return;
+    frame.classList.add("sync-loss");
+    const t = setTimeout(() => frame.classList.remove("sync-loss"), 320);
+    return () => clearTimeout(t);
+  }, [alerts]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -129,13 +145,15 @@ export function Scope({ history, alerts, cores, net }: ScopeProps) {
           </span>
         </span>
       </h2>
-      <canvas
-        ref={canvasRef}
-        role="img"
-        aria-label={summary}
-        className="mt-2 block w-full rounded-sm bg-tube"
-        style={{ height: HEIGHT }}
-      />
+      <div ref={frameRef} className="scope-frame mt-2">
+        <canvas
+          ref={canvasRef}
+          role="img"
+          aria-label={summary}
+          className="block w-full rounded-sm bg-tube"
+          style={{ height: HEIGHT }}
+        />
+      </div>
       <p className="sr-only">{summary}</p>
     </section>
   );

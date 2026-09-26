@@ -217,7 +217,40 @@
   --lamp: var(--edge);
 }
 
+/* Sync loss: one horizontal bar sweeps the scope once when a new critical alert
+   appears. 300 ms, never loops. The reduced-motion block above shortens it to
+   nothing, and the alert tick on the time axis carries the information. */
+@keyframes sync-loss {
+  0% {
+    transform: translateY(-10%);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(110%);
+    opacity: 0;
+  }
+}
+.scope-frame {
+  position: relative;
+  overflow: hidden;
+}
+.scope-frame.sync-loss::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 6px;
+  background: color-mix(in oklch, var(--alarm) 70%, transparent);
+  animation: sync-loss 300ms linear 1;
+  pointer-events: none;
+}
+
 /* Tube mode: faint bloom on traces and a scanline texture, scope only (phase B). */
+:root[data-retro="2"] .scope-frame canvas {
+  filter: drop-shadow(0 0 3px color-mix(in oklch, var(--phosphor) 55%, transparent));
+  border-radius: 6px / 10px;
+}
 :root[data-retro="2"] .tube-fx {
   background-image: repeating-linear-gradient(
     0deg,
