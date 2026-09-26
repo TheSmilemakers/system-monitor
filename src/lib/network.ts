@@ -52,13 +52,14 @@ export function parseLsofAll(
   for (const line of raw.split("\n").slice(1)) {
     const parts = line.trim().split(/\s+/);
     if (parts.length < 9) continue;
-    const pid = Number.parseInt(parts[1], 10);
+    const [process = "", pidText = "", , , , , , proto = "", name = ""] = parts;
+    const pid = Number.parseInt(pidText, 10);
     if (!Number.isFinite(pid)) continue;
-    const [local, remote = ""] = parts[8].split("->");
+    const [local = "", remote = ""] = name.split("->");
     out.push({
-      process: parts[0],
+      process,
       pid,
-      proto: parts[7],
+      proto,
       local,
       remote,
       state: (parts[9] ?? "").replace(/^\(|\)$/g, ""),

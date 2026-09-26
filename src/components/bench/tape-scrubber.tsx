@@ -29,8 +29,13 @@ export function TapeScrubber({
           0,
           frames.findIndex((f) => f >= at),
         );
-  const shown = at ?? (count ? frames[count - 1] : null);
-  const spanMin = count > 1 ? Math.round((frames[count - 1] - frames[0]) / 60_000) : 0;
+  const firstFrame = frames[0];
+  const lastFrame = frames[count - 1];
+  const shown = at ?? lastFrame ?? null;
+  const spanMin =
+    firstFrame !== undefined && lastFrame !== undefined
+      ? Math.round((lastFrame - firstFrame) / 60_000)
+      : 0;
 
   return (
     <div
@@ -62,8 +67,9 @@ export function TapeScrubber({
         disabled={count < 2}
         onChange={(e) => {
           const i = Number(e.target.value);
+          const frame = frames[i];
           if (i >= count - 1) onLive();
-          else onScrub(frames[i]);
+          else if (frame !== undefined) onScrub(frame);
         }}
         className="min-w-[200px] flex-1 accent-[var(--phosphor)]"
       />

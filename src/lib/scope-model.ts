@@ -57,7 +57,7 @@ export function buildTraces(history: readonly HistoryPoint[], cores: number): Sc
     values,
     max,
     unit,
-    now: values.length ? fmt(values[values.length - 1], unit) : "",
+    now: values.length ? fmt(values[values.length - 1] ?? 0, unit) : "",
     peak: values.length ? fmt(Math.max(...values), unit) : "",
   });
   return [
@@ -109,8 +109,8 @@ export function alertTicks(
   pad = 2,
 ): { x: number; label: string }[] {
   if (history.length < 2) return [];
-  const start = history[0].ts;
-  const end = history[history.length - 1].ts;
+  const start = history[0]?.ts ?? 0;
+  const end = history[history.length - 1]?.ts ?? start;
   const span = Math.max(1, end - start);
   const w = Math.max(1, width - pad * 2);
   return alerts.map((a) => {
@@ -134,6 +134,6 @@ export function sliceWindow(
   windowMs: number,
 ): HistoryPoint[] {
   if (history.length === 0) return [];
-  const end = endTs ?? history[history.length - 1].ts;
+  const end = endTs ?? history[history.length - 1]?.ts ?? 0;
   return history.filter((h) => h.ts <= end && h.ts >= end - windowMs);
 }

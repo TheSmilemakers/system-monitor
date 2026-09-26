@@ -201,7 +201,7 @@ describe("GET /api/cleanup", () => {
     expect(JSON.stringify(raw)).not.toContain('"command"');
     expect(cleanup.items.length).toBeGreaterThan(0);
     for (let i = 1; i < cleanup.items.length; i++) {
-      expect(cleanup.items[i - 1].size).toBeGreaterThanOrEqual(cleanup.items[i].size);
+      expect(cleanup.items[i - 1]?.size ?? -1).toBeGreaterThanOrEqual(cleanup.items[i]?.size ?? 0);
     }
     for (const item of cleanup.items) {
       expect(item.size).toBe(40960 * 1024);
@@ -264,8 +264,8 @@ describe("GET /api/privacy", () => {
     expect(typeof privacy.privacyScore).toBe("number");
     const perms = privacy.findings.filter((f) => f.category === "App Permissions");
     expect(perms).toHaveLength(1);
-    expect(perms[0].title).toContain("Screen Recording: 2 app(s) granted");
-    expect(perms[0].severity).toBe("medium");
+    expect(perms[0]?.title).toContain("Screen Recording: 2 app(s) granted");
+    expect(perms[0]?.severity).toBe("medium");
   });
 
   test("reports a failed connection listing instead of a clean network", async () => {

@@ -341,11 +341,11 @@ export async function sample(): Promise<StatsSample> {
       cpu: cpuUsed,
       mem: memPercent,
       swap: swapUsedMB,
-      load: load[0],
+      load: load[0] ?? 0,
       net: Math.round((net.inKBps + net.outKBps) * 10) / 10,
     });
   }
-  while (history.length > 0 && now - history[0].ts > HISTORY_WINDOW_MS) history.shift();
+  while (history.length > 0 && now - (history[0]?.ts ?? now) > HISTORY_WINDOW_MS) history.shift();
 
   recordProcessTraces(allProcs, now);
   lastTop = allProcs;

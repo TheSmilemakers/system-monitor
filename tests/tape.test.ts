@@ -80,10 +80,10 @@ describe("the tape", () => {
       net: 0,
     }));
     const live = sliceWindow(points, null, SCOPE_WINDOW_MS);
-    expect(live[live.length - 1].cpu).toBe(119);
-    expect(live[0].ts).toBe(points[119].ts - SCOPE_WINDOW_MS);
+    expect(live[live.length - 1]?.cpu).toBe(119);
+    expect(live[0]?.ts).toBe((points[119]?.ts ?? 0) - SCOPE_WINDOW_MS);
     const rewound = sliceWindow(points, T0.getTime() + 60 * 5000, SCOPE_WINDOW_MS);
-    expect(rewound[rewound.length - 1].cpu).toBe(60);
+    expect(rewound[rewound.length - 1]?.cpu).toBe(60);
     expect(rewound).toHaveLength(61);
     expect(sliceWindow([], null, SCOPE_WINDOW_MS)).toEqual([]);
   });
@@ -107,6 +107,6 @@ describe("the tape", () => {
     expect(res.status).toBe(200);
     const frame = parseTapeFrame(await res.json());
     expect(frame.ts).toBe(T0.getTime());
-    expect(frame.top[0].pid).toBe(648);
+    expect(frame.top[0]?.pid).toBe(648);
   });
 });

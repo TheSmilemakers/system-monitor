@@ -58,7 +58,10 @@ export async function resolveAll(ips: readonly string[]): Promise<Map<string, Re
   for (let i = 0; i < unique.length; i += MAX_CONCURRENCY) {
     const batch = unique.slice(i, i + MAX_CONCURRENCY);
     const results = await Promise.all(batch.map((ip) => resolveHost(ip)));
-    batch.forEach((ip, j) => out.set(ip, results[j]));
+    batch.forEach((ip, j) => {
+      const r = results[j];
+      if (r) out.set(ip, r);
+    });
   }
   return out;
 }
@@ -67,8 +70,8 @@ export async function resolveAll(ips: readonly string[]): Promise<Map<string, Re
 export function remoteAddressOf(name: string): string | null {
   const arrow = name.split("->")[1];
   if (!arrow) return null;
-  const v6 = arrow.match(/^\[([^\]]+)\]:/);
-  if (v6) return v6[1];
+  const v6 = arrow.match(/^\[([^\]]+)\]:/)?.[1];
+  if (v6) return v6;
   const host = arrow.split(":")[0];
   return host || null;
 }

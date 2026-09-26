@@ -100,9 +100,9 @@ describe("posture()", () => {
       state: "caution",
       summary: expect.stringContaining("Off"),
     });
-    expect(byId.sip.state).toBe("ok");
-    expect(byId.gatekeeper.state).toBe("ok");
-    expect(byId.filevault.state).toBe("ok");
+    expect(byId.sip?.state).toBe("ok");
+    expect(byId.gatekeeper?.state).toBe("ok");
+    expect(byId.filevault?.state).toBe("ok");
     expect(byId.xprotect).toMatchObject({
       state: "ok",
       summary: "Definitions 5360, updated 10 days ago",
@@ -113,7 +113,7 @@ describe("posture()", () => {
     });
     expect(byId.sysext).toMatchObject({ state: "info", summary: "1 active: NordVPN protection" });
     // The update check runs in the background: dark until it lands.
-    expect(byId.updates.state).toBe("off");
+    expect(byId.updates?.state).toBe("off");
 
     await updatesSettled();
     const again = await posture(T0.getTime() + 1000);
@@ -133,8 +133,8 @@ describe("posture()", () => {
     });
     const r = await posture(T0.getTime());
     const byId = Object.fromEntries(r.lamps.map((l) => [l.id, l]));
-    expect(byId.xprotect.state).toBe("caution");
-    expect(byId.sip.state).toBe("alarm");
+    expect(byId.xprotect?.state).toBe("caution");
+    expect(byId.sip?.state).toBe("alarm");
   });
 
   test("a probe that cannot run gives a dark lamp and marks the report incomplete", async () => {

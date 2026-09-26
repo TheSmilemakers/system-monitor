@@ -56,8 +56,8 @@ describe("M-11 — stats contract", () => {
 
   test("load always yields callable numbers", () => {
     const parsed = parseStats(validStats);
-    expect(() => parsed.load[0].toFixed(1)).not.toThrow();
-    expect(parsed.load[0].toFixed(1)).toBe("1.5");
+    expect(() => parsed.load[0]?.toFixed(1)).not.toThrow();
+    expect(parsed.load[0]?.toFixed(1)).toBe("1.5");
   });
 
   test("drops malformed history and alert entries rather than trusting them", () => {
@@ -122,7 +122,7 @@ describe("M-11 / H-03 — scores are nullable in the contract", () => {
         },
       ],
     });
-    expect(parsed.findings[0].severity).toBe("info");
+    expect(parsed.findings[0]?.severity).toBe("info");
   });
 });
 
@@ -149,8 +149,8 @@ describe("M-11 — cleanup contract carries ids, never commands", () => {
         },
       ],
     });
-    expect(parsed.items[0].id).toBe("user-caches");
-    expect(parsed.items[0].requiresRoot).toBe(true);
+    expect(parsed.items[0]?.id).toBe("user-caches");
+    expect(parsed.items[0]?.requiresRoot).toBe(true);
   });
 
   test("a null file count is preserved rather than coerced to 0", () => {
@@ -162,13 +162,13 @@ describe("M-11 — cleanup contract carries ids, never commands", () => {
       timestamp: 1,
       items: [{ id: "a", name: "A", path: "/x", size: 1, fileCount: null }],
     });
-    expect(parsed.items[0].fileCount).toBeNull();
+    expect(parsed.items[0]?.fileCount).toBeNull();
   });
 
   test("items lacking an id are discarded", () => {
     const parsed = parseCleanup({ items: [{ size: 1 }, { id: "ok", size: 2 }], timestamp: 1 });
     expect(parsed.items).toHaveLength(1);
-    expect(parsed.items[0].id).toBe("ok");
+    expect(parsed.items[0]?.id).toBe("ok");
   });
 
   test("an unrecognised risk degrades to the most cautious value", () => {
@@ -176,6 +176,6 @@ describe("M-11 — cleanup contract carries ids, never commands", () => {
       items: [{ id: "a", size: 1, risk: "totally-safe" }],
       timestamp: 1,
     });
-    expect(parsed.items[0].risk).toBe("medium");
+    expect(parsed.items[0]?.risk).toBe("medium");
   });
 });

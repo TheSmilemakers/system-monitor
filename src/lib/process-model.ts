@@ -151,8 +151,7 @@ export function childrenOf(pid: number, list: readonly ProcessInfo[]): ProcessIn
 
 /** The outermost `.app` bundle directory on the path, if any. */
 export function bundleRoot(path: string): string | null {
-  const m = path.match(/^(.*?\.app)(\/|$)/);
-  return m ? m[1] : null;
+  return path.match(/^(.*?\.app)(\/|$)/)?.[1] ?? null;
 }
 
 /** The app a process belongs to: its bundle's name, else its own name. */

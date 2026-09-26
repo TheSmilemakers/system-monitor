@@ -19,7 +19,7 @@ export function computeLevels(data: SystemStats): Levels {
     cpu: levelFor(data.cpu.used, 60, 85),
     mem: levelFor(data.memory.percent, 70, 90),
     swap: data.swap.usedMB > 2000 ? "critical" : data.swap.usedMB > 100 ? "warn" : "ok",
-    load: levelFor(data.load[0], data.cpu.cores * 0.8, data.cpu.cores * 1.2),
+    load: levelFor(data.load[0] ?? 0, data.cpu.cores * 0.8, data.cpu.cores * 1.2),
     disk: levelFor(data.disk.percent, 80, 95),
   };
 }
@@ -78,11 +78,11 @@ export function VitalsRail({ data, levels }: { data: SystemStats; levels: Levels
       <Vital
         label="Load"
         level={levels.load}
-        value={data.load[0].toFixed(1)}
+        value={(data.load[0] ?? 0).toFixed(1)}
         unit={`${data.cpu.cores} cores`}
-        breakdown={`1m ${data.load[0].toFixed(1)}  5m ${data.load[1].toFixed(1)}  15m ${data.load[2].toFixed(1)}`}
+        breakdown={`1m ${(data.load[0] ?? 0).toFixed(1)}  5m ${(data.load[1] ?? 0).toFixed(1)}  15m ${(data.load[2] ?? 0).toFixed(1)}`}
         meter={{
-          value: data.load[0],
+          value: data.load[0] ?? 0,
           max: data.cpu.cores * 2,
           warnAt: data.cpu.cores * 0.8,
           critAt: data.cpu.cores * 1.2,

@@ -25,22 +25,22 @@ describe("buildTraces", () => {
     const traces = buildTraces(history, 10);
     expect(traces.map((t) => t.id)).toEqual(["cpu", "mem", "load", "net"]);
     const cpu = traces[0];
-    expect(cpu.max).toBe(100);
-    expect(cpu.now).toBe("12%");
-    expect(cpu.peak).toBe("90%");
-    expect(traces[2].max).toBe(20); // load: twice the core count
-    expect(traces[2].now).toBe("2.0");
+    expect(cpu?.max).toBe(100);
+    expect(cpu?.now).toBe("12%");
+    expect(cpu?.peak).toBe("90%");
+    expect(traces[2]?.max).toBe(20); // load: twice the core count
+    expect(traces[2]?.now).toBe("2.0");
     const net = traces[3];
-    expect(net.max).toBe(2048); // auto-scaled to the window's peak
-    expect(net.now).toBe("512 KB/s");
-    expect(net.peak).toBe("2.0 MB/s");
+    expect(net?.max).toBe(2048); // auto-scaled to the window's peak
+    expect(net?.now).toBe("512 KB/s");
+    expect(net?.peak).toBe("2.0 MB/s");
   });
 
   test("the network scale never drops below the floor, and empty history yields empty labels", () => {
-    expect(buildTraces([point(0, { net: 3 })], 4)[3].max).toBe(NET_FLOOR_KBPS);
+    expect(buildTraces([point(0, { net: 3 })], 4)[3]?.max).toBe(NET_FLOOR_KBPS);
     const empty = buildTraces([], 4);
-    expect(empty[0].now).toBe("");
-    expect(empty[0].values).toEqual([]);
+    expect(empty[0]?.now).toBe("");
+    expect(empty[0]?.values).toEqual([]);
   });
 });
 
@@ -53,14 +53,14 @@ describe("tracePoints", () => {
 
   test("clips values above the scale and puts a single sample at the right edge", () => {
     expect(tracePoints([250], 100, 100, 50, 0)[0]).toEqual({ x: 100, y: 0 });
-    expect(tracePoints([-5], 100, 100, 50, 0)[0].y).toBe(50);
+    expect(tracePoints([-5], 100, 100, 50, 0)[0]?.y).toBe(50);
     expect(tracePoints([], 100, 100, 50)).toEqual([]);
   });
 });
 
 describe("alertTicks", () => {
   const history = [point(0), point(1), point(2), point(3)]; // 15 s window
-  const now = history[3].ts;
+  const now = history[3]?.ts ?? 0;
 
   test("maps an alert onset to its position in the window", () => {
     const ticks = alertTicks(
@@ -71,8 +71,8 @@ describe("alertTicks", () => {
       1,
     );
     // Onset at now - 5 s = two thirds of the way across.
-    expect(Math.round(ticks[0].x)).toBe(101);
-    expect(ticks[0].label).toBe("x (PID 1) went hot");
+    expect(Math.round(ticks[0]?.x ?? NaN)).toBe(101);
+    expect(ticks[0]?.label).toBe("x (PID 1) went hot");
   });
 
   test("alerts older than the window pin to the left edge; short history yields none", () => {
@@ -83,7 +83,7 @@ describe("alertTicks", () => {
       now,
       1,
     );
-    expect(ticks[0].x).toBe(1);
+    expect(ticks[0]?.x).toBe(1);
     expect(
       alertTicks([{ pid: 1, command: "x", cpu: 90, duration: 1 }], [point(0)], 100, now),
     ).toEqual([]);

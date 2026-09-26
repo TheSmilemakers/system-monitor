@@ -59,10 +59,10 @@ describe("attachExecutablePaths", () => {
       row(1, "/sbin/launchd"),
     ];
     await attachExecutablePaths(rows);
-    expect(rows[0].path).toBe("/Users/rajan/.nvm/versions/node/v22.17.0/bin/node");
-    expect(rows[0].command).toBe("next-server (v16.3.6)");
-    expect(rows[1].path).toBe("/Applications/Claude.app/Contents/MacOS/Claude");
-    expect(rows[2].path).toBe("/sbin/launchd"); // untouched
+    expect(rows[0]?.path).toBe("/Users/rajan/.nvm/versions/node/v22.17.0/bin/node");
+    expect(rows[0]?.command).toBe("next-server (v16.3.6)");
+    expect(rows[1]?.path).toBe("/Applications/Claude.app/Contents/MacOS/Claude");
+    expect(rows[2]?.path).toBe("/sbin/launchd"); // untouched
 
     await identitiesSettled();
     const again = [row(95665, "next-server (v16.3.6)"), row(54357, "Claude")];
@@ -115,7 +115,7 @@ describe("attachExecutablePaths", () => {
     installFakeProbe({ lsof: () => ({ status: "denied" }) });
     const rows = [row(95665, "next-server (v16.3.6)")];
     await attachExecutablePaths(rows);
-    expect(rows[0].path).toBe("next-server (v16.3.6)");
-    expect(rows[0].trust).toBe("unknown");
+    expect(rows[0]?.path).toBe("next-server (v16.3.6)");
+    expect(rows[0]?.trust).toBe("unknown");
   });
 });

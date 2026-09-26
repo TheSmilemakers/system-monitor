@@ -135,6 +135,7 @@ export function NetworkView({
           <ul aria-label="Connections by process">
             {[...byProcess.entries()].map(([key, conns]) => {
               const first = conns[0];
+              if (!first) return null;
               return (
                 <li key={key} className="border-b border-border/60 px-3 py-1.5">
                   <button
