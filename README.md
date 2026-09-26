@@ -60,6 +60,13 @@ command palette. In the table, j and k move, i inspects, x asks to terminate,
 / focuses search. Theme (night shift or daylight) and retro intensity (clean,
 instrument, tube) are in the header and remembered per browser.
 
+The inspector explains every process in plain words from three offline
+layers, tried in order: a curated knowledge base of over 500 macOS daemons,
+agents, developer tools and third-party apps (`src/data/process-kb.json`:
+what it is, what is normal, when to worry, whether it is safe to kill, what
+to check); Apple's own manual pages; and heuristics from the path, bundle
+and signature. Nothing leaves the machine.
+
 ## Features
 
 ### Real-time dashboard

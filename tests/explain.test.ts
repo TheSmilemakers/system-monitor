@@ -43,7 +43,7 @@ describe("knowledge base", () => {
   test("every entry has a what, and kill advice is one of the three values", async () => {
     const kb = (await import("@/data/process-kb.json")).default as Record<string, unknown>;
     const entries = Object.entries(kb).filter(([k]) => k !== "$comment");
-    expect(entries.length).toBeGreaterThanOrEqual(80);
+    expect(entries.length).toBeGreaterThanOrEqual(500);
     for (const [name, v] of entries) {
       const entry = v as { what?: string; kill?: string };
       expect(typeof entry.what, name).toBe("string");
