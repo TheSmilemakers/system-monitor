@@ -1,7 +1,7 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, useDragControls, useReducedMotion } from "motion/react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   assessProcess,
@@ -15,6 +15,15 @@ import {
 } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { usePolling } from "@/hooks/use-polling";
+import {
+  clampWidth,
+  INSPECTOR_DEFAULT_WIDTH,
+  INSPECTOR_MAX_WIDTH,
+  INSPECTOR_MIN_WIDTH,
+  nearestDetent,
+  sheetDetents,
+  shouldDismiss,
+} from "@/lib/gestures";
 import {
   appOf,
   childrenOf,
@@ -51,6 +60,25 @@ export interface InspectorProps {
 
 type ActionKey = "suspend" | "resume" | "renice" | "sample" | "assess" | "reveal" | "watch";
 
+const WIDTH_KEY = "sm:inspector-width";
+const NARROW = "(max-width: 639px)";
+
+function subscribeNarrow(cb: () => void): () => void {
+  const m = window.matchMedia(NARROW);
+  m.addEventListener("change", cb);
+  return () => m.removeEventListener("change", cb);
+}
+const readNarrow = () => window.matchMedia(NARROW).matches;
+
+function readWidth(): number {
+  try {
+    const raw = localStorage.getItem(WIDTH_KEY);
+    return raw ? clampWidth(Number(raw)) : INSPECTOR_DEFAULT_WIDTH;
+  } catch {
+    return INSPECTOR_DEFAULT_WIDTH;
+  }
+}
+
 /**
  * The inspector: a parallel panel (no scrim, the table keeps updating
  * beneath) that answers who is this, what does it do, what is it doing now,
@@ -60,6 +88,12 @@ type ActionKey = "suspend" | "resume" | "renice" | "sample" | "assess" | "reveal
  * Non-destructive actions (suspend, resume, lower priority, sample, assess,
  * reveal, watch) act immediately and announce their outcome; terminate
  * confirms.
+ *
+ * Gestures: drag the header rightwards and the drawer follows the hand; the
+ * sign of the release velocity decides whether it goes or springs back. Drag
+ * the left edge to resize (remembered per browser; the arrow keys work too).
+ * On a narrow screen the inspector is a bottom sheet with three detents,
+ * peek, half and full, chosen by momentum projection on release.
  */
 export function Inspector({
   proc,
@@ -78,6 +112,18 @@ export function Inspector({
   const [busy, setBusy] = useState<ActionKey | null>(null);
   const [sampleText, setSampleText] = useState<string | null>(null);
   const [assessment, setAssessment] = useState<AssessOutcome | null>(null);
+  // The drawer is only ever rendered after a click, so reading storage in the
+  // initialiser cannot disagree with a server render.
+  const [width, setWidth] = useState(readWidth);
+  const resize = useRef({ startX: 0, startWidth: 0, active: false });
+  const dragControls = useDragControls();
+  const narrow = useSyncExternalStore(subscribeNarrow, readNarrow, () => false);
+  const detents = useMemo(
+    () => sheetDetents(typeof window === "undefined" ? 800 : window.innerHeight),
+    // Recomputed when the layout mode flips; the detents follow the viewport then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [narrow],
+  );
 
   const pid = proc?.pid ?? 0;
   const detail = usePolling({
@@ -123,19 +169,92 @@ export function Inspector({
     [proc, onNotice, detail],
   );
 
-  const motionProps = reduced
-    ? {
-        initial: { opacity: 0 },
-        animate: { opacity: 1 },
-        exit: { opacity: 0 },
-        transition: { duration: 0.15 },
-      }
-    : {
-        initial: { x: "100%" },
-        animate: { x: 0 },
-        exit: { x: "100%" },
-        transition: { type: "spring" as const, bounce: 0, duration: 0.3 },
-      };
+  const spring = { type: "spring" as const, bounce: 0, duration: 0.3 };
+  const motionProps = narrow
+    ? reduced
+      ? {
+          initial: { opacity: 0, y: detents.half },
+          animate: { opacity: 1, y: detents.half },
+          exit: { opacity: 0 },
+          transition: { duration: 0.15 },
+        }
+      : {
+          initial: { y: "100%" },
+          animate: { y: detents.half },
+          exit: { y: "100%" },
+          transition: spring,
+          drag: "y" as const,
+          dragControls,
+          dragListener: false,
+          dragConstraints: { top: 0, bottom: detents.peek },
+          dragElastic: 0.15,
+          // Momentum projection, then the nearest detent: motion projects the
+          // rest point from the release velocity and asks where to settle.
+          dragTransition: {
+            bounceStiffness: 400,
+            bounceDamping: 40,
+            modifyTarget: (target: number) => nearestDetent(target, detents),
+          },
+        }
+    : reduced
+      ? {
+          initial: { opacity: 0 },
+          animate: { opacity: 1 },
+          exit: { opacity: 0 },
+          transition: { duration: 0.15 },
+        }
+      : {
+          initial: { x: "100%" },
+          animate: { x: 0 },
+          exit: { x: "100%" },
+          transition: spring,
+          drag: "x" as const,
+          dragControls,
+          dragListener: false,
+          // Free to the right (dismiss), held on the left; release decides.
+          dragConstraints: { left: 0, right: 0 },
+          dragElastic: { left: 0, right: 1 },
+          onDragEnd: (_e: unknown, info: { velocity: { x: number }; offset: { x: number } }) => {
+            if (shouldDismiss(info.velocity.x, info.offset.x)) onClose();
+          },
+        };
+
+  const startDrag = (e: React.PointerEvent<HTMLElement>) => {
+    if (reduced) return;
+    if (e.target instanceof HTMLElement && e.target.closest("button, a, input")) return;
+    dragControls.start(e);
+  };
+
+  const onResizeDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    resize.current = { startX: e.clientX, startWidth: width, active: true };
+  };
+  const onResizeMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!resize.current.active) return;
+    setWidth(clampWidth(resize.current.startWidth + (resize.current.startX - e.clientX)));
+  };
+  const persistWidth = (w: number) => {
+    try {
+      localStorage.setItem(WIDTH_KEY, String(w));
+    } catch {
+      /* storage unavailable: the width lasts the session */
+    }
+  };
+  const onResizeUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!resize.current.active) return;
+    resize.current.active = false;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    persistWidth(width);
+  };
+  const onResizeKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = e.key === "ArrowLeft" ? 16 : e.key === "ArrowRight" ? -16 : 0;
+    if (step === 0) return;
+    e.preventDefault();
+    const next = clampWidth(width + step);
+    setWidth(next);
+    persistWidth(next);
+  };
 
   const suspended = detail.data?.suspended ?? false;
   const name = proc?.command ?? "";
@@ -151,10 +270,51 @@ export function Inspector({
           role="dialog"
           aria-modal="false"
           aria-labelledby="inspector-title"
-          className="glass fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-border shadow-2xl"
+          className={
+            narrow
+              ? "glass fixed inset-x-0 top-0 bottom-0 z-40 flex flex-col rounded-t-lg border-t border-border shadow-2xl"
+              : "glass fixed inset-y-0 right-0 z-40 flex max-w-[100vw] flex-col border-l border-border shadow-2xl"
+          }
+          style={narrow ? {} : { width, willChange: "transform" }}
         >
-          <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+          {!narrow && (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize inspector"
+              aria-valuenow={width}
+              aria-valuemin={INSPECTOR_MIN_WIDTH}
+              aria-valuemax={INSPECTOR_MAX_WIDTH}
+              tabIndex={0}
+              title="Drag to resize; arrow keys work too"
+              className="absolute inset-y-0 left-0 w-1.5 cursor-col-resize outline-none hover:bg-phosphor/30 focus-visible:bg-phosphor/40"
+              style={{ touchAction: "none" }}
+              onPointerDown={onResizeDown}
+              onPointerMove={onResizeMove}
+              onPointerUp={onResizeUp}
+              onPointerCancel={onResizeUp}
+              onKeyDown={onResizeKey}
+            />
+          )}
+          <div
+            className={`flex items-start justify-between gap-3 border-b border-border px-4 py-3 ${reduced ? "" : "cursor-grab active:cursor-grabbing"}`}
+            style={{ touchAction: "none" }}
+            onPointerDown={startDrag}
+            title={
+              reduced
+                ? undefined
+                : narrow
+                  ? "Drag up or down; it settles on the nearest stop"
+                  : "Drag to the right to dismiss"
+            }
+          >
             <div className="min-w-0">
+              {narrow && (
+                <span
+                  aria-hidden="true"
+                  className="mx-auto mb-1.5 block h-1 w-10 rounded-full bg-muted-foreground/40"
+                />
+              )}
               <p className="engraved">Inspector</p>
               <h2 id="inspector-title" className="truncate font-display text-lg font-semibold">
                 {proc.command}

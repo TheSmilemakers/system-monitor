@@ -57,6 +57,12 @@ The tape under the scope rewinds the last hour: drag the counter and the scope
 and the process table show that moment (top 50 processes and the alerts, as
 they were). Actions are disabled on the tape; Escape or Back to live returns.
 
+The inspector answers to the hand as well: drag its header to the right and
+it follows; the sign of the release velocity decides whether it goes or springs
+back. Drag its left edge to resize (the arrow keys work on the handle too, and
+the width is remembered per browser). On a narrow window it is a bottom sheet
+with three stops, peek, half and full, chosen by momentum on release.
+
 The tape can be dragged: pull the scope's time axis or the counter sideways
 and the window follows the hand; a flick coasts and settles on a recorded
 frame. The range input remains for the keyboard.
