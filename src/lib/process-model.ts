@@ -6,9 +6,21 @@ import type { ProcessInfo, TrustState } from "./schemas";
  * no network, so every rule is unit-tested without a browser.
  */
 
-export type SortKey = "cpu" | "mem" | "rss" | "pid" | "command" | "elapsed" | "trust" | "user";
+export type SortKey =
+  | "cpu"
+  | "mem"
+  | "rss"
+  | "pid"
+  | "ppid"
+  | "command"
+  | "publisher"
+  | "path"
+  | "elapsed"
+  | "trust"
+  | "user"
+  | "connections";
 export type SortDir = "asc" | "desc";
-export type FilterKey = "all" | "mine" | "system" | "untrusted" | "alerted";
+export type FilterKey = "all" | "mine" | "system" | "untrusted" | "alerted" | "networked" | "new";
 
 export const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "all" },
@@ -16,6 +28,8 @@ export const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "system", label: "system" },
   { key: "untrusted", label: "unsigned or ad-hoc" },
   { key: "alerted", label: "alerted" },
+  { key: "networked", label: "networked" },
+  { key: "new", label: "new since baseline" },
 ];
 
 /** Higher is more trusted. Pending sits with unknown so it never sorts as bad or good. */
@@ -41,6 +55,12 @@ export function sortProcesses(
         return a.command.localeCompare(b.command, undefined, { sensitivity: "base" });
       case "user":
         return a.user.localeCompare(b.user);
+      case "publisher":
+        return (a.publisher ?? "").localeCompare(b.publisher ?? "", undefined, {
+          sensitivity: "base",
+        });
+      case "path":
+        return a.path.localeCompare(b.path);
       case "trust":
         return TRUST_RANK[a.trust] - TRUST_RANK[b.trust];
       default:
@@ -78,6 +98,12 @@ export function filterProcesses(list: readonly ProcessInfo[], opts: FilterOption
         break;
       case "alerted":
         if (!opts.alertedPids.has(p.pid)) return false;
+        break;
+      case "networked":
+        if (p.connections === 0) return false;
+        break;
+      case "new":
+        if (!p.newSinceBaseline) return false;
         break;
       default:
         break;

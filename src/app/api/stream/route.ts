@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { enrichProcesses } from "@/lib/enrich";
 import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
 import { tick } from "@/lib/monitor";
 import { finiteInt } from "@/lib/probe";
@@ -77,7 +78,11 @@ export async function GET(request: Request) {
                   error: "System metrics are unavailable",
                   unavailable: data.unavailable,
                 })
-              : send("stats", { ...data, watches: await loadWatches() });
+              : send("stats", {
+                  ...data,
+                  processes: { ...data.processes, top: await enrichProcesses(data.processes.top) },
+                  watches: await loadWatches(),
+                });
           if (!ok) break;
         } catch (e) {
           if (!send("error", { error: e instanceof Error ? e.message : "Sampling failed" })) break;

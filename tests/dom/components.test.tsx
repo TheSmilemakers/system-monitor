@@ -26,6 +26,8 @@ const proc = (over: Partial<ProcessInfo>): ProcessInfo => ({
   trust: "apple",
   publisher: "Apple",
   bundleId: null,
+  connections: 0,
+  newSinceBaseline: false,
   ...over,
 });
 
@@ -220,5 +222,78 @@ describe("ProcessTable", () => {
     expect(calls.kill).toEqual([648]);
     fireEvent.keyDown(grid, { key: "/" });
     expect(document.activeElement).toBe(screen.getByRole("searchbox"));
+  });
+});
+
+describe("ProcessTable columns, captions and lamps", () => {
+  const richRows: ProcessInfo[] = [
+    proc({ pid: 648, cpu: 72, command: "fileproviderd", path: "/System/x/fileproviderd" }),
+    proc({
+      pid: 900,
+      cpu: 3,
+      command: "Google Chrome",
+      path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      trust: "developer-id",
+      publisher: "Google LLC",
+      connections: 4,
+    }),
+    proc({
+      pid: 2000,
+      cpu: 12,
+      command: "gh",
+      path: "/opt/homebrew/bin/gh",
+      trust: "adhoc",
+      publisher: null,
+      newSinceBaseline: true,
+    }),
+  ];
+  const renderRich = () =>
+    render(
+      <ProcessTable
+        processes={richRows}
+        alerts={[{ pid: 648, command: "fileproviderd", cpu: 72, duration: 461 }]}
+        currentUser="rajan"
+        killingPid={null}
+        selectedPid={null}
+        onSelect={() => {}}
+        onInspect={() => {}}
+        onKill={() => {}}
+      />,
+    );
+
+  beforeEach(() => {
+    try {
+      localStorage.removeItem("sm:columns");
+    } catch {
+      /* no storage */
+    }
+  });
+
+  test("the Columns chooser reveals a column and the choice is remembered", () => {
+    renderRich();
+    expect(screen.queryByRole("columnheader", { name: /Publisher/ })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Publisher" }));
+    expect(screen.getByRole("columnheader", { name: /Publisher/ })).toBeTruthy();
+    expect(localStorage.getItem("sm:columns")).toContain("publisher");
+    cleanup();
+    renderRich();
+    expect(screen.getByRole("columnheader", { name: /Publisher/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Conns" }));
+    const chrome = screen.getByRole("grid").querySelector('[data-pid="900"]');
+    expect(chrome?.textContent).toContain("4");
+  });
+
+  test("an alerted row carries its caption; a new process and a networked one are filterable", () => {
+    renderRich();
+    const hot = screen.getByRole("grid").querySelector('[data-pid="648"]');
+    expect(hot?.textContent).toContain("72% of one core for 7m 41s");
+    const fresh = screen.getByRole("grid").querySelector('[data-pid="2000"]');
+    expect(fresh?.textContent).toContain("new since baseline");
+
+    fireEvent.click(screen.getByRole("button", { name: "networked" }));
+    expect(screen.getByRole("status").textContent).toContain("1 of 3");
+    fireEvent.click(screen.getByRole("button", { name: "new since baseline" }));
+    expect(screen.getByRole("status").textContent).toContain("1 of 3");
+    expect(within(screen.getByRole("grid")).getAllByRole("row")).toHaveLength(2);
   });
 });

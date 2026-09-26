@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { enrichProcesses } from "@/lib/enrich";
 import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
 import { tick } from "@/lib/monitor";
 import { sample } from "@/lib/sampler";
@@ -41,5 +42,6 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json({ ...data, watches: await loadWatches() });
+  const [top, watches] = await Promise.all([enrichProcesses(data.processes.top), loadWatches()]);
+  return NextResponse.json({ ...data, processes: { ...data.processes, top }, watches });
 }

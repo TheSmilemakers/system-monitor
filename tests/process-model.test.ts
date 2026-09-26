@@ -28,6 +28,8 @@ const proc = (over: Partial<ProcessInfo>): ProcessInfo => ({
   trust: "apple",
   publisher: "Apple",
   bundleId: null,
+  connections: 0,
+  newSinceBaseline: false,
   ...over,
 });
 
@@ -231,5 +233,27 @@ describe("lamps, locations, hints", () => {
     expect(formatAge(86_400 * 18 + 3600)).toBe("18d 1h");
     expect(formatAge(-1)).toBe("0s");
     expect(formatAge(Number.NaN)).toBe("0s");
+  });
+});
+
+describe("networked and new-since-baseline filters, publisher and connection sorting", () => {
+  const list = [
+    proc({ pid: 1, command: "a", publisher: "Zed", connections: 0, newSinceBaseline: false }),
+    proc({ pid: 2, command: "b", publisher: null, connections: 3, newSinceBaseline: true }),
+    proc({ pid: 3, command: "c", publisher: "apple", connections: 1, newSinceBaseline: false }),
+  ];
+  const opts = { query: "", currentUser: "rajan", alertedPids: new Set<number>() };
+
+  test("networked keeps processes with a connection; new keeps those absent from the baseline", () => {
+    expect(filterProcesses(list, { ...opts, filter: "networked" }).map((p) => p.pid)).toEqual([
+      2, 3,
+    ]);
+    expect(filterProcesses(list, { ...opts, filter: "new" }).map((p) => p.pid)).toEqual([2]);
+  });
+
+  test("publisher sorts case-insensitively with the unknown first; connections numerically", () => {
+    expect(sortProcesses(list, "publisher", "asc").map((p) => p.pid)).toEqual([2, 3, 1]);
+    expect(sortProcesses(list, "connections", "desc").map((p) => p.pid)).toEqual([2, 3, 1]);
+    expect(sortProcesses(list, "path", "asc").map((p) => p.pid)).toEqual([1, 2, 3]);
   });
 });
