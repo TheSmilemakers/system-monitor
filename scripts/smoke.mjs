@@ -161,6 +161,31 @@ async function main() {
       record(`${route} responds`, res.status === 200, `HTTP ${res.status}`);
     }
 
+    // The event stream: the bench's transport. A first stats event must arrive,
+    // typed as a stream and uncacheable, and cancelling the body must not hang.
+    const streamRes = await fetch(`${BASE}/api/stream?interval=3000`, {
+      signal: AbortSignal.timeout(60_000),
+    });
+    const streamType = streamRes.headers.get("content-type") ?? "";
+    let firstEvent = "";
+    if (streamRes.body) {
+      const reader = streamRes.body.getReader();
+      const dec = new TextDecoder();
+      while (!firstEvent.includes("\n\n")) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        firstEvent += dec.decode(value, { stream: true });
+      }
+      await reader.cancel().catch(() => {});
+    }
+    record(
+      "/api/stream pushes a first stats event",
+      streamRes.status === 200 &&
+        streamType.includes("text/event-stream") &&
+        firstEvent.startsWith("event: stats\n"),
+      `HTTP ${streamRes.status}, ${streamType || "no content type"}, ${firstEvent ? `${firstEvent.length} bytes` : "no event"}`,
+    );
+
     // The security boundary, exercised against the running server.
     // `fetch` silently drops Host (a forbidden header), so it cannot test this —
     // use node:http, which does send whatever Host it is given.

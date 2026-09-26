@@ -25,6 +25,7 @@ import { UnavailableNotice } from "@/components/dashboard/panel";
 import { ProcessTable } from "@/components/dashboard/process-table";
 import { Button } from "@/components/ui/button";
 import { useOnDemand, usePolling } from "@/hooks/use-polling";
+import { useStream } from "@/hooks/use-stream";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { currentRetro, currentTheme, setRetro, setTheme } from "@/lib/prefs";
 import {
@@ -50,9 +51,11 @@ export default function Dashboard() {
   // so offering an interval below the response time invites a queue again.
   const [refreshInterval, setRefreshInterval] = useState(5000);
 
-  const stats = usePolling({
-    url: "/api/stats",
-    intervalMs: refreshInterval || 5000,
+  // The sample arrives over a server-sent event stream at the chosen cadence.
+  // A dropped connection reconnects on its own; until it does, the last
+  // reading shows as stale. Pausing closes the stream.
+  const stats = useStream({
+    url: `/api/stream?interval=${refreshInterval || 5000}`,
     parse: parseStats,
     enabled: refreshInterval > 0,
   });
@@ -213,7 +216,7 @@ export default function Dashboard() {
       },
       {
         id: "pause",
-        label: refreshInterval === 0 ? "Resume polling" : "Pause polling",
+        label: refreshInterval === 0 ? "Resume updates" : "Pause updates",
         run: () => setRefreshInterval((v) => (v === 0 ? 5000 : 0)),
       },
       {

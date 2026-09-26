@@ -80,7 +80,7 @@ and signature. Nothing leaves the machine.
 - **Sparkline history** — a rolling 5-minute window sampled on a server-side cadence, so the window means the same thing regardless of how often the browser polls
 - **Process table** — top processes by CPU, with per-row termination
 - **Process alerts** — processes sustaining high CPU for 9 seconds or more
-- **Refresh control** — 3s / 5s / 10s / 30s, or paused; polling is completion-driven and pauses while the tab is hidden
+- **Refresh control** — 3s / 5s / 10s / 30s, or paused. The sample is pushed over a server-sent event stream (`/api/stream`) at that cadence, completion-driven so a slow probe never queues; a dropped connection reconnects on its own with the last reading shown as stale, and a hidden tab closes the stream. The other panels poll
 
 ### System scan
 - **Browser audit** — flags multiple concurrent browsers
@@ -188,7 +188,8 @@ fix the launch environment instead:
 | `src/lib/guard.ts` | Loopback Host/Origin enforcement, applied per handler |
 | `src/lib/scoring.ts` | Health and privacy rubrics, unit-tested against fixtures |
 | `src/lib/schemas.ts` | Runtime validation of every API response |
-| `src/hooks/use-polling.ts` | Completion-driven polling with abort, overlap and visibility guards |
+| `src/hooks/use-stream.ts` | The stats transport: a server-sent event stream read with fetch, reconnecting and visibility-aware, with polling's state shape |
+| `src/hooks/use-polling.ts` | Completion-driven polling with abort, overlap and visibility guards, for the slower panels |
 | `scripts/qa-gate.mjs` | Phase-scoped quality gates |
 
 | Endpoint | Purpose |
