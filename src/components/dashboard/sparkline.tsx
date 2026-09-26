@@ -44,8 +44,8 @@ export function Sparkline({ data, max, color, label, unit = "", warnAt, critAt }
   const points = data.map((v, i) => `${PAD + i * step},${y(v)}`).join(" ");
   const area = `${PAD},${PAD + h} ${points} ${PAD + (data.length - 1) * step},${PAD + h}`;
 
-  const first = data[0];
-  const last = data[data.length - 1];
+  const first = data[0] ?? 0;
+  const last = data[data.length - 1] ?? 0;
   const peak = Math.max(...data);
   const direction = last > first * 1.1 ? "rising" : last < first * 0.9 ? "falling" : "steady";
   const summary = `${label} ${direction}. Now ${last.toFixed(1)}${unit}, peak ${peak.toFixed(1)}${unit} over the last ${data.length} samples.`;

@@ -144,10 +144,12 @@ export function Scope({
       pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
       ctx.stroke();
       const last = pts[pts.length - 1];
-      ctx.fillStyle = stroke;
-      ctx.beginPath();
-      ctx.arc(last.x, last.y, 2, 0, Math.PI * 2);
-      ctx.fill();
+      if (last) {
+        ctx.fillStyle = stroke;
+        ctx.beginPath();
+        ctx.arc(last.x, last.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // Alert onsets on the time axis.

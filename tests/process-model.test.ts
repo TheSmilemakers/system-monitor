@@ -283,7 +283,9 @@ describe("groupByApp", () => {
   });
 
   test("a helper sorted above its app leads the group", () => {
-    const g = groupByApp([list[3], list[1], list[4]]);
+    const g = groupByApp(
+      [list[3], list[1], list[4]].filter((p): p is ProcessInfo => p !== undefined),
+    );
     expect(g.order.map((p) => p.pid)).toEqual([903, 900, 904]);
     expect(g.groups.get(903)?.members.map((p) => p.pid)).toEqual([900, 904]);
     expect(groupByApp([]).order).toEqual([]);

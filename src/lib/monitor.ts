@@ -225,8 +225,8 @@ async function persistenceHashes(): Promise<Record<string, string>> {
     const sums = await probe("shasum", ["-a", "256", ...files], 15_000);
     if (!hasValue(sums)) continue;
     for (const line of sums.value.split("\n")) {
-      const m = /^([0-9a-f]{64})\s+\*?(.+)$/.exec(line.trim());
-      if (m) out[m[2]] = m[1];
+      const [, hash, file] = /^([0-9a-f]{64})\s+\*?(.+)$/.exec(line.trim()) ?? [];
+      if (hash && file) out[file] = hash;
     }
   }
   return out;
@@ -235,8 +235,10 @@ async function persistenceHashes(): Promise<Record<string, string>> {
 /** Parse `scutil --dns` for the resolver addresses, in order, without duplicates. */
 export function parseDnsServers(raw: string): string[] {
   const out: string[] = [];
-  for (const m of raw.matchAll(/nameserver\[\d+\]\s*:\s*(\S+)/g))
-    if (!out.includes(m[1])) out.push(m[1]);
+  for (const m of raw.matchAll(/nameserver\[\d+\]\s*:\s*(\S+)/g)) {
+    const server = m[1];
+    if (server && !out.includes(server)) out.push(server);
+  }
   return out;
 }
 
@@ -272,7 +274,7 @@ export function parseProxies(raw: string): string[] {
 /** Parse `dscl . -read /Groups/admin GroupMembership`. */
 export function parseAdmins(raw: string): string[] {
   const m = /GroupMembership:\s*(.*)/.exec(raw);
-  return m ? m[1].trim().split(/\s+/).filter(Boolean) : [];
+  return (m?.[1] ?? "").trim().split(/\s+/).filter(Boolean);
 }
 
 async function sshInventory(): Promise<Record<string, string>> {
@@ -287,8 +289,8 @@ async function sshInventory(): Promise<Record<string, string>> {
     const sums = await probe("shasum", ["-a", "256", ...keyFiles.map((n) => path.join(dir, n))]);
     if (hasValue(sums)) {
       for (const line of sums.value.split("\n")) {
-        const m = /^([0-9a-f]{64})\s+\*?(.+)$/.exec(line.trim());
-        if (m) out[path.basename(m[2])] = m[1];
+        const [, hash, file] = /^([0-9a-f]{64})\s+\*?(.+)$/.exec(line.trim()) ?? [];
+        if (hash && file) out[path.basename(file)] = hash;
       }
     }
   }

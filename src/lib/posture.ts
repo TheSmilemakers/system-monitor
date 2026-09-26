@@ -70,14 +70,14 @@ export function parseFirewall(out: string): { enabled: boolean; stealth: boolean
   const enabled = /Firewall is (enabled|disabled)/i.exec(out);
   if (!enabled) return null;
   return {
-    enabled: enabled[1].toLowerCase() === "enabled",
+    enabled: (enabled[1] ?? "").toLowerCase() === "enabled",
     stealth: /stealth mode is on/i.test(out),
   };
 }
 
 export function parseSip(out: string): boolean | null {
-  const m = /System Integrity Protection status:\s*(enabled|disabled)/i.exec(out);
-  return m ? m[1].toLowerCase() === "enabled" : null;
+  const m = /System Integrity Protection status:\s*(enabled|disabled)/i.exec(out)?.[1];
+  return m ? m.toLowerCase() === "enabled" : null;
 }
 
 export function parseGatekeeper(out: string): boolean | null {
@@ -87,8 +87,8 @@ export function parseGatekeeper(out: string): boolean | null {
 }
 
 export function parseFileVault(out: string): boolean | null {
-  const m = /FileVault is (On|Off)/i.exec(out);
-  return m ? m[1].toLowerCase() === "on" : null;
+  const m = /FileVault is (On|Off)/i.exec(out)?.[1];
+  return m ? m.toLowerCase() === "on" : null;
 }
 
 /** Ports with a LISTEN socket bound to every interface (`*.port`), from `netstat -an -p tcp`. */
@@ -136,9 +136,9 @@ export function parseSystemExtensions(out: string): SystemExtension[] {
     const cols = line.split("\t");
     if (cols.length < 5 || cols[2] === "teamID") continue;
     items.push({
-      teamId: cols[2].trim(),
-      bundleId: cols[3].trim().replace(/\s*\(.*\)$/, ""),
-      name: cols[4].trim(),
+      teamId: (cols[2] ?? "").trim(),
+      bundleId: (cols[3] ?? "").trim().replace(/\s*\(.*\)$/, ""),
+      name: (cols[4] ?? "").trim(),
       state: (cols[5] ?? "").trim().replace(/^\[|\]$/g, ""),
     });
   }
@@ -146,7 +146,7 @@ export function parseSystemExtensions(out: string): SystemExtension[] {
 }
 
 export function parseSoftwareUpdate(out: string): { pending: string[]; denied: boolean } {
-  const pending = [...out.matchAll(/^\s*\*\s*Label:\s*(.+)$/gm)].map((m) => m[1].trim());
+  const pending = [...out.matchAll(/^\s*\*\s*Label:\s*(.+)$/gm)].map((m) => (m[1] ?? "").trim());
   const denied = /Access request was denied|SUMacControllerError/.test(out);
   return { pending, denied };
 }

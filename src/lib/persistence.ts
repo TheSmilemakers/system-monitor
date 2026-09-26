@@ -79,13 +79,13 @@ export function parsePlistXml(xml: string): PlistFields | null {
   if (!xml.includes("<plist")) return null;
   const str = (key: string): string | null => {
     const m = new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(xml);
-    return m ? m[1] : null;
+    return m?.[1] ?? null;
   };
   const bool = (key: string): boolean => new RegExp(`<key>${key}</key>\\s*<true/>`).test(xml);
   let program = str("Program");
   if (!program) {
     const m = /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(xml);
-    program = m ? m[1] : null;
+    program = m?.[1] ?? null;
   }
   return {
     label: str("Label"),
@@ -153,8 +153,8 @@ export async function persistenceReport(now = Date.now()): Promise<PersistenceRe
     const sums = await probe("shasum", ["-a", "256", ...batch], 15_000);
     if (!hasValue(sums)) continue;
     for (const line of sums.value.split("\n")) {
-      const m = /^([0-9a-f]{64})\s+\*?(.+)$/.exec(line.trim());
-      if (m) hashes[m[2]] = m[1];
+      const [, hash, file] = /^([0-9a-f]{64})\s+\*?(.+)$/.exec(line.trim()) ?? [];
+      if (hash && file) hashes[file] = hash;
     }
   }
 
