@@ -30,7 +30,8 @@ static void SMLog(NSString *message) {
 }
 
 /// The project to run: SM_PROJECT_DIR, then the `project` file beside the
-/// monitor's state (a path on one line), then the usual checkout.
+/// monitor's state (a path on one line), then the developer checkout, then
+/// where scripts/install.sh puts the source.
 static NSString *SMProjectDir(void) {
   NSFileManager *fm = [NSFileManager defaultManager];
   NSString *env = [[NSProcessInfo processInfo] environment][@"SM_PROJECT_DIR"];
@@ -39,7 +40,9 @@ static NSString *SMProjectDir(void) {
   NSString *text = [NSString stringWithContentsOfFile:pointer encoding:NSUTF8StringEncoding error:nil];
   NSString *dir = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
   if (dir.length && [fm fileExistsAtPath:[dir stringByAppendingPathComponent:@"package.json"]]) return dir;
-  return [NSHomeDirectory() stringByAppendingPathComponent:@"projects/system-monitor"];
+  NSString *checkout = [NSHomeDirectory() stringByAppendingPathComponent:@"projects/system-monitor"];
+  if ([fm fileExistsAtPath:[checkout stringByAppendingPathComponent:@"package.json"]]) return checkout;
+  return [NSHomeDirectory() stringByAppendingPathComponent:@".local/share/system-monitor"];
 }
 
 /// One GET, synchronously, from a background queue. Nil when the server is not there.
