@@ -69,7 +69,9 @@ and age. Click a name or press Enter to open the inspector; ⌘K opens the
 command palette; the digits 1 to 8 pick a workbench tab. In the table, j and k
 move, i inspects, x asks to terminate, / focuses search; the Columns menu adds
 publisher, path, parent and connection columns, remembered per browser, and the
-filters include networked and new since baseline. Theme (night shift or daylight) and retro intensity (clean,
+filters include networked and new since baseline. Group by app folds each app's
+helper processes under it with a disclosure and a total. Every column heading
+and each vital carries a hint saying what the figure means. Theme (night shift or daylight) and retro intensity (clean,
 instrument, tube) are in the header and remembered per browser.
 
 The inspector explains every process in plain words from three offline

@@ -163,6 +163,62 @@ export function appOf(p: ProcessInfo): string {
   return base.replace(/\.app$/, "");
 }
 
+export interface AppGroup {
+  lead: ProcessInfo;
+  /** The other processes of the same bundle, in list order. */
+  members: ProcessInfo[];
+  /** Totals across lead and members. */
+  cpu: number;
+  rss: number;
+}
+
+/**
+ * Fold a list into app groups: processes sharing a .app bundle sit under the
+ * first of them in list order (so the sort decides who leads), singletons
+ * stay as they are. `order` is the full list with members right after their
+ * lead; `memberOf` maps a member to its lead.
+ */
+export function groupByApp(list: readonly ProcessInfo[]): {
+  order: ProcessInfo[];
+  groups: Map<number, AppGroup>;
+  memberOf: Map<number, number>;
+} {
+  const byRoot = new Map<string, ProcessInfo[]>();
+  for (const p of list) {
+    const root = bundleRoot(p.path);
+    if (!root) continue;
+    const bucket = byRoot.get(root);
+    if (bucket) bucket.push(p);
+    else byRoot.set(root, [p]);
+  }
+  const order: ProcessInfo[] = [];
+  const groups = new Map<number, AppGroup>();
+  const memberOf = new Map<number, number>();
+  const placed = new Set<number>();
+  for (const p of list) {
+    if (placed.has(p.pid)) continue;
+    placed.add(p.pid);
+    order.push(p);
+    const root = bundleRoot(p.path);
+    const bucket = root ? (byRoot.get(root) ?? []) : [];
+    if (bucket.length < 2) continue;
+    const members = bucket.filter((m) => m.pid !== p.pid && !placed.has(m.pid));
+    if (members.length === 0) continue;
+    groups.set(p.pid, {
+      lead: p,
+      members,
+      cpu: members.reduce((s, m) => s + m.cpu, p.cpu),
+      rss: members.reduce((s, m) => s + m.rss, p.rss),
+    });
+    for (const m of members) {
+      placed.add(m.pid);
+      memberOf.set(m.pid, p.pid);
+      order.push(m);
+    }
+  }
+  return { order, groups, memberOf };
+}
+
 export type LampState = "ok" | "caution" | "alarm" | "info" | "off";
 
 export interface TrustLampInfo {

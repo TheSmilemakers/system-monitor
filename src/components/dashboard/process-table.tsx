@@ -6,9 +6,11 @@ import { TrustLamp } from "@/components/bench/trust-lamp";
 import { Button } from "@/components/ui/button";
 import { formatBytes, formatDuration } from "@/lib/format";
 import {
+  appOf,
   FILTERS,
   filterProcesses,
   formatAge,
+  groupByApp,
   sortProcesses,
   type FilterKey,
   type SortDir,
@@ -34,29 +36,83 @@ interface Column {
   label: string;
   className: string;
   srLabel?: string;
+  /** What the figure means, on the heading. */
+  hint?: string;
   /** Off by default; the chooser turns it on and remembers per browser. */
   optional?: boolean;
 }
 
 const COLUMNS: Column[] = [
-  { key: "trust", label: "Trust", className: "w-24" },
-  { key: "pid", label: "PID", className: "w-16 text-right" },
-  { key: "ppid", label: "Parent", className: "w-16 text-right", optional: true },
-  { key: "command", label: "Process", className: "" },
-  { key: "publisher", label: "Publisher", className: "w-40", optional: true },
-  { key: "path", label: "Path", className: "max-w-[280px]", optional: true },
-  { key: "user", label: "User", className: "w-24" },
-  { key: "cpu", label: "CPU", className: "w-16 text-right", srLabel: "CPU percent of one core" },
-  { key: "mem", label: "Mem", className: "w-16 text-right", srLabel: "memory percent" },
-  { key: "rss", label: "RSS", className: "w-20 text-right", srLabel: "resident memory" },
+  {
+    key: "trust",
+    label: "Trust",
+    className: "w-24",
+    hint: "Code signature: Apple, App Store, a Developer ID, ad hoc (no identity), or unsigned.",
+  },
+  {
+    key: "pid",
+    label: "PID",
+    className: "w-16 text-right",
+    hint: "Process id; reused after exit.",
+  },
+  {
+    key: "ppid",
+    label: "Parent",
+    className: "w-16 text-right",
+    optional: true,
+    hint: "The process that started this one; 1 is launchd.",
+  },
+  { key: "command", label: "Process", className: "", hint: "Executable name; click to inspect." },
+  {
+    key: "publisher",
+    label: "Publisher",
+    className: "w-40",
+    optional: true,
+    hint: "Who signed the executable, from its certificate.",
+  },
+  {
+    key: "path",
+    label: "Path",
+    className: "max-w-[280px]",
+    optional: true,
+    hint: "Where the executable lives on disk.",
+  },
+  { key: "user", label: "User", className: "w-24", hint: "The account the process runs as." },
+  {
+    key: "cpu",
+    label: "CPU",
+    className: "w-16 text-right",
+    srLabel: "CPU percent of one core",
+    hint: "Percent of one core over the last sample: 100 is one core fully busy, more means several.",
+  },
+  {
+    key: "mem",
+    label: "Mem",
+    className: "w-16 text-right",
+    srLabel: "memory percent",
+    hint: "Share of physical memory this process holds resident.",
+  },
+  {
+    key: "rss",
+    label: "RSS",
+    className: "w-20 text-right",
+    srLabel: "resident memory",
+    hint: "Resident set size: memory actually in RAM for this process (shared pages counted for each).",
+  },
   {
     key: "connections",
     label: "Conns",
     className: "w-16 text-right",
     srLabel: "established TCP connections",
     optional: true,
+    hint: "Established TCP connections held right now, from one lsof pass every half minute.",
   },
-  { key: "elapsed", label: "Age", className: "w-20 text-right" },
+  {
+    key: "elapsed",
+    label: "Age",
+    className: "w-20 text-right",
+    hint: "Time since the process started.",
+  },
 ];
 
 const DEFAULT_DIR: Record<SortKey, SortDir> = {
@@ -144,6 +200,8 @@ export function ProcessTable({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [query, setQuery] = useState("");
+  const [grouped, setGrouped] = useState(false);
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const columnsRaw = useSyncExternalStore(subscribeColumns, readColumnsRaw, () => "");
   const shown = useMemo(() => parseColumns(columnsRaw), [columnsRaw]);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -160,7 +218,7 @@ export function ProcessTable({
   const alertedPids = useMemo(() => new Set(alerts.map((a) => a.pid)), [alerts]);
   const alertByPid = useMemo(() => new Map(alerts.map((a) => [a.pid, a])), [alerts]);
 
-  const rows = useMemo(
+  const matched = useMemo(
     () =>
       sortProcesses(
         filterProcesses(processes, { filter, query, currentUser, alertedPids }),
@@ -169,6 +227,23 @@ export function ProcessTable({
       ),
     [processes, filter, query, currentUser, alertedPids, sortKey, sortDir],
   );
+  // Grouped: helpers sit under the first process of their app in sort order,
+  // hidden until the lead is disclosed. The keyboard walks visible rows only.
+  const grouping = useMemo(() => (grouped ? groupByApp(matched) : null), [grouped, matched]);
+  const rows = useMemo(() => {
+    if (!grouping) return matched;
+    return grouping.order.filter((p) => {
+      const lead = grouping.memberOf.get(p.pid);
+      return lead === undefined || expanded.has(lead);
+    });
+  }, [grouping, matched, expanded]);
+  const toggleGroup = (pid: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(pid)) next.delete(pid);
+      else next.add(pid);
+      return next;
+    });
 
   const setSort = (key: SortKey) => {
     if (key === sortKey) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -232,7 +307,7 @@ export function ProcessTable({
     }
   };
 
-  const summary = `${rows.length} of ${processes.length} processes`;
+  const summary = `${matched.length} of ${processes.length} processes`;
 
   const cell = (proc: ProcessInfo, key: SortKey) => {
     switch (key) {
@@ -256,9 +331,30 @@ export function ProcessTable({
         );
       case "command": {
         const alert = alertByPid.get(proc.pid);
+        const group = grouping?.groups.get(proc.pid);
+        const member = grouping?.memberOf.has(proc.pid) ?? false;
         return (
           <td key={key} className="max-w-[320px] px-2 py-1" title={proc.path}>
-            <div className="truncate">
+            <div className={`truncate ${member ? "pl-5" : ""}`}>
+              {group && (
+                <button
+                  type="button"
+                  aria-expanded={expanded.has(proc.pid)}
+                  aria-label={`${expanded.has(proc.pid) ? "Hide" : "Show"} ${group.members.length} more ${appOf(proc)} process${group.members.length === 1 ? "" : "es"}`}
+                  className="mr-1 inline-block w-3 text-muted-foreground hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleGroup(proc.pid);
+                  }}
+                >
+                  <span aria-hidden="true">{expanded.has(proc.pid) ? "▾" : "▸"}</span>
+                </button>
+              )}
+              {member && (
+                <span aria-hidden="true" className="mr-1 text-muted-foreground">
+                  └
+                </span>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
@@ -294,6 +390,11 @@ export function ProcessTable({
               )}
               {proc.publisher && proc.trust !== "apple" && !shown.has("publisher") && (
                 <span className="ml-2 text-muted-foreground">{proc.publisher}</span>
+              )}
+              {group && (
+                <span className="ml-2 text-muted-foreground">
+                  +{group.members.length}, {group.cpu.toFixed(1)}% CPU, {formatBytes(group.rss)}
+                </span>
               )}
             </div>
             {alert && (
@@ -389,6 +490,19 @@ export function ProcessTable({
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          aria-pressed={grouped}
+          onClick={() => setGrouped((g) => !g)}
+          title="Fold each app's helper processes under it"
+          className={`rounded border px-2 py-0.5 font-mono text-[11px] ${
+            grouped
+              ? "border-phosphor/60 bg-phosphor/10 text-foreground"
+              : "border-border text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Group by app
+        </button>
         <details className="relative font-mono text-[11px]">
           <summary className="cursor-default list-none rounded border border-border px-2 py-0.5 text-muted-foreground hover:text-foreground">
             Columns
@@ -452,6 +566,7 @@ export function ProcessTable({
                     <button
                       type="button"
                       onClick={() => setSort(c.key)}
+                      title={c.hint}
                       className={`inline-flex items-center gap-1 hover:text-foreground ${active ? "text-foreground" : ""}`}
                     >
                       {c.label}

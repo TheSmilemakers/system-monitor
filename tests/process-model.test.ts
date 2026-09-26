@@ -6,6 +6,7 @@ import {
   childrenOf,
   explainTrust,
   filterProcesses,
+  groupByApp,
   formatAge,
   indexByPid,
   locationClass,
@@ -255,5 +256,36 @@ describe("networked and new-since-baseline filters, publisher and connection sor
     expect(sortProcesses(list, "publisher", "asc").map((p) => p.pid)).toEqual([2, 3, 1]);
     expect(sortProcesses(list, "connections", "desc").map((p) => p.pid)).toEqual([2, 3, 1]);
     expect(sortProcesses(list, "path", "asc").map((p) => p.pid)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("groupByApp", () => {
+  const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  const helper = "/Applications/Google Chrome.app/Contents/Frameworks/H.app/Contents/MacOS/Helper";
+  const list = [
+    proc({ pid: 1, command: "launchd", path: "/sbin/launchd", cpu: 1, rss: 10 }),
+    proc({ pid: 900, command: "Google Chrome", path: chrome, cpu: 3, rss: 100 }),
+    proc({ pid: 2000, command: "gh", path: "/opt/homebrew/bin/gh", cpu: 12 }),
+    proc({ pid: 903, ppid: 900, command: "Helper", path: helper, cpu: 5, rss: 50 }),
+    proc({ pid: 904, ppid: 900, command: "Helper", path: helper, cpu: 2, rss: 20 }),
+  ];
+
+  test("folds an app's processes under the first in list order, with totals; singletons stay put", () => {
+    const g = groupByApp(list);
+    expect(g.order.map((p) => p.pid)).toEqual([1, 900, 903, 904, 2000]);
+    expect(g.groups.get(900)).toMatchObject({ cpu: 10, rss: 170 });
+    expect(g.groups.get(900)?.members.map((p) => p.pid)).toEqual([903, 904]);
+    expect([...g.memberOf.entries()]).toEqual([
+      [903, 900],
+      [904, 900],
+    ]);
+    expect(g.groups.has(2000)).toBe(false);
+  });
+
+  test("a helper sorted above its app leads the group", () => {
+    const g = groupByApp([list[3], list[1], list[4]]);
+    expect(g.order.map((p) => p.pid)).toEqual([903, 900, 904]);
+    expect(g.groups.get(903)?.members.map((p) => p.pid)).toEqual([900, 904]);
+    expect(groupByApp([]).order).toEqual([]);
   });
 });

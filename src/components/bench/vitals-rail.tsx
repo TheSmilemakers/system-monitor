@@ -35,6 +35,7 @@ export function VitalsRail({ data, levels }: { data: SystemStats; levels: Levels
     <div className="flex flex-col gap-2" aria-label="System vitals">
       <Vital
         label="CPU"
+        hint="Share of all cores busy over the last sample, user plus system. Elevated above 70%, critical above 90%; sustained high CPU with nothing obviously running is worth a look at the table."
         level={levels.cpu}
         value={data.cpu.used.toFixed(1)}
         unit="%"
@@ -44,6 +45,7 @@ export function VitalsRail({ data, levels }: { data: SystemStats; levels: Levels
       />
       <Vital
         label="Memory"
+        hint="Memory in use as macOS counts it: wired, active and compressed. When compressed memory grows the Mac is squeezing to fit; swap follows."
         level={levels.mem}
         value={data.memory.usedGB.toFixed(1)}
         unit={`of ${data.memory.totalGB} GB`}
@@ -53,6 +55,7 @@ export function VitalsRail({ data, levels }: { data: SystemStats; levels: Levels
       />
       <Vital
         label="Swap"
+        hint="Memory written out to disk because RAM ran short. Any swap in use costs speed; above 2 GB the working set no longer fits."
         level={levels.swap}
         value={swapText(data.swap.usedMB)}
         unit={data.swap.usedMB < 1024 ? "MB" : "GB"}
@@ -77,6 +80,7 @@ export function VitalsRail({ data, levels }: { data: SystemStats; levels: Levels
       />
       <Vital
         label="Load"
+        hint="Runnable threads averaged over 1, 5 and 15 minutes. Compare with the core count: above 0.8 per core is busy, above 1.2 per core work is queueing."
         level={levels.load}
         value={data.load[0].toFixed(1)}
         unit={`${data.cpu.cores} cores`}

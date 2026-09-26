@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 import { LedMeter } from "@/components/bench/led-meter";
 import { ThemeControls } from "@/components/bench/theme-controls";
 import { TrustLamp } from "@/components/bench/trust-lamp";
+import { Vital } from "@/components/bench/vital";
 import { ProcessTable } from "@/components/dashboard/process-table";
 import { currentRetro, currentTheme } from "@/lib/prefs";
 import type { ProcessInfo } from "@/lib/schemas";
@@ -295,5 +296,81 @@ describe("ProcessTable columns, captions and lamps", () => {
     fireEvent.click(screen.getByRole("button", { name: "new since baseline" }));
     expect(screen.getByRole("status").textContent).toContain("1 of 3");
     expect(within(screen.getByRole("grid")).getAllByRole("row")).toHaveLength(2);
+  });
+});
+
+describe("ProcessTable grouping and Vital hints", () => {
+  const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  const helper = "/Applications/Google Chrome.app/Contents/Frameworks/H.app/Contents/MacOS/Helper";
+  const grouped: ProcessInfo[] = [
+    proc({ pid: 648, cpu: 72, command: "fileproviderd", path: "/System/x/fileproviderd" }),
+    proc({ pid: 900, cpu: 3, command: "Google Chrome", path: chrome, trust: "developer-id" }),
+    proc({
+      pid: 903,
+      ppid: 900,
+      cpu: 5,
+      command: "Google Chrome Helper",
+      path: helper,
+      trust: "developer-id",
+    }),
+  ];
+
+  test("Group by app folds the helper under Chrome and the disclosure reveals it", () => {
+    render(
+      <ProcessTable
+        processes={grouped}
+        alerts={[]}
+        currentUser="rajan"
+        killingPid={null}
+        selectedPid={null}
+        onSelect={() => {}}
+        onInspect={() => {}}
+        onKill={() => {}}
+      />,
+    );
+    const rowsNow = () => within(screen.getByRole("grid")).getAllByRole("row").length - 1;
+    expect(rowsNow()).toBe(3);
+    fireEvent.click(screen.getByRole("button", { name: "Group by app" }));
+    expect(rowsNow()).toBe(2);
+    expect(screen.getByRole("status").textContent).toContain("3 of 3");
+    const lead = screen.getByRole("grid").querySelector('[data-pid="903"]');
+    expect(lead?.textContent).toContain("+1, 8.0% CPU");
+    const disclose = screen.getByRole("button", { name: /Show 1 more Google Chrome process/ });
+    fireEvent.click(disclose);
+    expect(rowsNow()).toBe(3);
+    expect(screen.getByRole("button", { name: /Hide 1 more/ })).toBeTruthy();
+  });
+
+  test("a vital with a hint exposes a labelled trigger; headings carry their hint as a title", () => {
+    render(
+      <Vital
+        label="CPU"
+        level="ok"
+        value="12.0"
+        unit="%"
+        breakdown="8% user 4% sys"
+        hint="Share of all cores busy."
+        meter={{ value: 12, max: 100, warnAt: 70, critAt: 90 }}
+        trace={{ data: [1, 5, 3, 8, 12], max: 100, unit: "%", warnAt: 70, critAt: 90 }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "About CPU" })).toBeTruthy();
+    expect(document.body.textContent).toMatch(/peak 12\.0%/);
+    cleanup();
+    render(
+      <ProcessTable
+        processes={grouped}
+        alerts={[]}
+        currentUser="rajan"
+        killingPid={null}
+        selectedPid={null}
+        onSelect={() => {}}
+        onInspect={() => {}}
+        onKill={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /^CPU/ }).getAttribute("title")).toContain(
+      "one core",
+    );
   });
 });
