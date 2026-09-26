@@ -30,9 +30,13 @@ The monitor runs while the app is open: once a minute it snapshots running
 executables (by path and signature), outbound destinations, network-bound
 listening ports, launch agents and daemons (by content hash) and the posture
 lamps, user accounts and administrators, the contents of ~/.ssh, DNS resolvers
-and active system extensions, compares them with the baseline recorded on first
-run, and writes what changed to the Timeline tab. Alarms (an unsigned binary from Downloads, a launch
-item from an unrecognised vendor, SIP off) also post a macOS notification.
+and active system extensions, privacy grants (when Full Disk Access lets it read
+the TCC database), web proxies and /etc/hosts, the crontab and periodic scripts,
+and third-party kernel extensions; compares them with the baseline recorded on
+first run; and writes what changed to the Timeline tab. Alarms (an unsigned
+binary from Downloads, a launch item from an unrecognised vendor, SIP off, a new
+proxy, a Screen Recording grant) also post a macOS notification. The Permissions
+tab lists the last week of grant changes.
 "Reset baseline" makes the current state normal. State lives in
 `~/Library/Application Support/system-monitor` and never leaves the machine.
 

@@ -300,6 +300,8 @@ export interface PermissionsReport {
   readable: boolean;
   grants: PermissionGrant[];
   highRiskGrants: number;
+  /** Grant changes the monitor saw in the last week. */
+  recent: TimelineEvent[];
   unavailable: Unavailable[];
   timestamp: number;
 }
@@ -637,9 +639,9 @@ function watchList(v: unknown): WatchEntry[] {
     }));
 }
 
-export function parseTimeline(raw: unknown): TimelineResult {
-  if (!isObj(raw) || !arr(raw.events)) throw new ContractError("timeline.events must be an array");
-  const events: TimelineEvent[] = raw.events.filter(isObj).map((e) => ({
+function eventList(v: unknown): TimelineEvent[] {
+  if (!arr(v)) return [];
+  return v.filter(isObj).map((e) => ({
     id: str(e.id) ? e.id : "",
     ts: num(e.ts) ? e.ts : 0,
     severity: e.severity === "alarm" || e.severity === "caution" ? e.severity : "info",
@@ -648,6 +650,11 @@ export function parseTimeline(raw: unknown): TimelineResult {
     message: str(e.message) ? e.message : "",
     rule: str(e.rule) ? e.rule : "",
   }));
+}
+
+export function parseTimeline(raw: unknown): TimelineResult {
+  if (!isObj(raw) || !arr(raw.events)) throw new ContractError("timeline.events must be an array");
+  const events = eventList(raw.events);
   return {
     events,
     baselineAt: num(raw.baselineAt) ? raw.baselineAt : null,
@@ -745,6 +752,7 @@ export function parsePermissions(raw: unknown): PermissionsReport {
     readable: bool(raw.readable) ? raw.readable : false,
     grants,
     highRiskGrants: num(raw.highRiskGrants) ? raw.highRiskGrants : 0,
+    recent: eventList(raw.recent),
     unavailable: unavailableList(raw.unavailable),
     timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
   };

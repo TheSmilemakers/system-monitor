@@ -61,6 +61,12 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   sshKeys: { authorized_keys: "k1", id_ed25519: "" },
   dns: ["1.1.1.1", "8.8.8.8"],
   extensions: ["com.nordvpn.macos.Shield"],
+  permissions: {},
+  tccReadable: false,
+  proxies: [],
+  hostsHash: "",
+  cron: {},
+  kexts: [],
   ...over,
 });
 
