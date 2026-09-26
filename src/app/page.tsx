@@ -206,6 +206,12 @@ export default function Dashboard() {
       { id: "live", label: "Back to live", hint: "leave the tape", run: () => setTapeAt(null) },
       { id: "refresh", label: "Refresh now", run: () => stats.refresh() },
       {
+        id: "report",
+        label: "Print shift report",
+        hint: "opens the printout",
+        run: () => window.open("/report", "_blank", "noopener"),
+      },
+      {
         id: "pause",
         label: refreshInterval === 0 ? "Resume polling" : "Pause polling",
         run: () => setRefreshInterval((v) => (v === 0 ? 5000 : 0)),

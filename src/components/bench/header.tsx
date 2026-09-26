@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 import type { SystemStats } from "@/lib/schemas";
 
@@ -68,6 +70,15 @@ export function Header({
         </span>
 
         <ThemeControls />
+
+        <Link
+          href="/report"
+          target="_blank"
+          rel="noopener"
+          className="rounded border border-border bg-bezel px-2 py-0.5 font-mono text-xs text-muted-foreground hover:text-foreground"
+        >
+          Report
+        </Link>
 
         <Button
           variant="outline"

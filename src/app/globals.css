@@ -217,6 +217,26 @@
   --lamp: var(--edge);
 }
 
+/* Split-flap: a new timeline row flips in once when it mounts (React mounts
+   only rows it has not seen). 200 ms, no loop; reduced motion collapses it. */
+@keyframes flap {
+  0% {
+    transform: rotateX(-90deg);
+    opacity: 0.2;
+  }
+  60% {
+    transform: rotateX(12deg);
+    opacity: 1;
+  }
+  100% {
+    transform: rotateX(0deg);
+  }
+}
+.flap {
+  transform-origin: top center;
+  animation: flap 200ms ease-out 1;
+}
+
 /* Sync loss: one horizontal bar sweeps the scope once when a new critical alert
    appears. 300 ms, never loops. The reduced-motion block above shortens it to
    nothing, and the alert tick on the time axis carries the information. */

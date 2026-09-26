@@ -92,7 +92,7 @@ export function TimelineView({
         {data?.events.map((e: TimelineEvent) => (
           <li
             key={e.id}
-            className="grid grid-cols-[auto_auto_1fr] items-start gap-x-3 border-b border-border/60 px-3 py-1.5"
+            className="flap grid grid-cols-[auto_auto_1fr] items-start gap-x-3 border-b border-border/60 px-3 py-1.5"
           >
             <span className="tabular-nums text-muted-foreground">{when(e.ts, now)}</span>
             <span

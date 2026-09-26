@@ -47,6 +47,11 @@ The tape under the scope rewinds the last hour: drag the counter and the scope
 and the process table show that moment (top 50 processes and the alerts, as
 they were). Actions are disabled on the tape; Escape or Back to live returns.
 
+`/report` (the Report link in the header) prints a fixed-width shift report:
+posture, top processes with trust, network listeners and destinations, and the
+last 24 hours of timeline events. Print or save as PDF from the page, or copy
+the text; `/api/report` serves it as plain text.
+
 The bench: vitals on the left (seven-segment numerals and LED meters at retro
 level 1, the default), the process workbench on the right. Every process shows
 its code-signing trust (Apple, App Store, signed, ad-hoc, unsigned), publisher
