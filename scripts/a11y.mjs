@@ -43,6 +43,16 @@ const require = createRequire(import.meta.url);
 const AXE_SOURCE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Resolve when a child has exited, or after `ms` if it will not. */
+const exited = (child, ms = 3000) =>
+  new Promise((resolve) => {
+    if (!child || child.exitCode !== null) return resolve();
+    const t = setTimeout(resolve, ms);
+    child.once("exit", () => {
+      clearTimeout(t);
+      resolve();
+    });
+  });
 const results = [];
 const record = (name, pass, detail) => {
   results.push({ name, pass });
@@ -275,7 +285,7 @@ async function main() {
   const profileDir = mkdtempSync(path.join(os.tmpdir(), "sm-a11y-"));
   let server = null;
   let chrome = null;
-  const cleanup = () => {
+  const stop = () => {
     for (const c of [server, chrome]) {
       try {
         c?.kill("SIGTERM");
@@ -283,7 +293,19 @@ async function main() {
         /* already gone */
       }
     }
-    rmSync(profileDir, { recursive: true, force: true });
+  };
+  // Chrome flushes its profile on the way out; removing the directory under it
+  // raced (ENOTEMPTY). Wait for the exit, and treat a leftover as harmless.
+  const removeProfile = () => {
+    try {
+      rmSync(profileDir, { recursive: true, force: true });
+    } catch {
+      /* still being written, or already gone: the OS temp dir is cleaned anyway */
+    }
+  };
+  const cleanup = () => {
+    stop();
+    removeProfile();
   };
   process.on("exit", cleanup);
   process.on("SIGINT", () => {
@@ -303,7 +325,9 @@ async function main() {
       }
     }
   } finally {
-    cleanup();
+    stop();
+    await exited(chrome);
+    removeProfile();
   }
 
   console.log("─".repeat(74));
