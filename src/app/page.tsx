@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { cleanupItem, killProcess, stopServer } from "./actions";
+import { ThemeControls } from "@/components/bench/theme-controls";
 import { ProcessTable } from "@/components/dashboard/process-table";
 import {
   Panel,
@@ -203,7 +204,7 @@ export default function Dashboard() {
   // so a persistent failure can never present as an endless spinner.
   if (stats.phase === "error" && !data) {
     return (
-      <main className="dark flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+      <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
         <div role="alert" className="max-w-md space-y-3 text-center">
           <h1 className="font-mono text-base font-semibold">System Monitor</h1>
           <p className="font-mono text-sm text-red-400">{stats.error}</p>
@@ -221,7 +222,7 @@ export default function Dashboard() {
 
   if (!data || !levels) {
     return (
-      <main className="dark flex min-h-screen items-center justify-center bg-background text-foreground">
+      <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
         <p
           role="status"
           className="font-mono text-sm text-muted-foreground motion-safe:animate-pulse"
@@ -235,7 +236,7 @@ export default function Dashboard() {
   const history = data.history;
 
   return (
-    <div className="dark min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-mono text-base font-semibold tracking-tight">System Monitor</h1>
@@ -254,6 +255,8 @@ export default function Dashboard() {
           <span>
             {data.processes.total} procs / {data.processes.threads} threads
           </span>
+
+          <ThemeControls />
 
           <span className="flex items-center gap-1.5">
             <label htmlFor="refresh-interval" className="text-muted-foreground">
