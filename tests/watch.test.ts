@@ -113,6 +113,12 @@ describe("diffWatches", () => {
     sshKeys: {},
     dns: [],
     extensions: [],
+    permissions: {},
+    tccReadable: false,
+    proxies: [],
+    hostsHash: "",
+    cron: {},
+    kexts: [],
   });
   const watches = [{ key: CHROME, name: "Google Chrome", addedAt: T0 }];
 

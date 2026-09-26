@@ -83,6 +83,12 @@ describe("persistenceReport", () => {
   test("lists every launch item with scope, program, signature, vendor and baseline flags", async () => {
     const baseline: Snapshot = {
       ts: 0,
+      permissions: {},
+      tccReadable: false,
+      proxies: [],
+      hostsHash: "",
+      cron: {},
+      kexts: [],
       processes: {},
       destinations: [],
       ports: [],

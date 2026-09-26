@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
 import {
+  parseKexts,
   parseListeningPorts,
   parseSystemExtensions,
   posture,
@@ -13,15 +15,18 @@ import { locationClass } from "./process-model";
 import { remoteAddressOf, resolveAll } from "./resolve-host";
 import type { ProcessInfo } from "./sampler";
 import { appendJsonl, compactJsonl, readJson, readJsonl, writeJson } from "./store";
+import { grantsFor, TCC_SERVICES } from "./tcc";
 import { loadWatches, type Watch } from "./watch";
 
 /**
  * The constant monitor: a baseline of what the machine normally looks like,
  * a diff every tick, and an append-only timeline of what changed.
  *
- * Surfaces in this first stage: running executables (by path and trust),
- * outbound destinations, listening ports, launch agents and daemons (by
- * content hash), and the posture lamps. Each difference becomes an event
+ * Surfaces: running executables (by path and trust), outbound destinations,
+ * listening ports, launch agents and daemons (by content hash), the posture
+ * lamps, accounts and admins, ~/.ssh, DNS resolvers, system extensions,
+ * privacy grants (TCC), web proxies and /etc/hosts, cron and periodic
+ * scripts, and third-party kernel extensions. Each difference becomes an event
  * with a severity from the rule table below. An event fires when a subject
  * first appears relative to the previous tick and is not in the baseline;
  * the same rule and subject is not repeated within ten minutes. Alarms are
@@ -40,6 +45,7 @@ export type EventCategory =
   | "account"
   | "credential"
   | "extension"
+  | "permission"
   | "watch"
   | "monitor";
 
@@ -77,6 +83,41 @@ export interface Snapshot {
   dns: string[];
   /** Active third-party system extensions by bundle id. */
   extensions: string[];
+  /** TCC service -> sorted clients holding the grant. Empty when unreadable. */
+  permissions: Record<string, string[]>;
+  /** Whether the TCC database could be read; drift is judged only when both sides could. */
+  tccReadable: boolean;
+  /** Enabled web, secure web, SOCKS proxies and PAC URLs, as "KIND target". */
+  proxies: string[];
+  /** sha256 of /etc/hosts, or "" when unreadable. */
+  hostsHash: string;
+  /** User crontab and /etc/periodic scripts -> sha256. */
+  cron: Record<string, string>;
+  /** Loaded third-party kernel extensions by bundle id. */
+  kexts: string[];
+}
+
+/** Fill fields a baseline recorded by an older build did not have. */
+export function normalizeSnapshot(s: Partial<Snapshot> & { ts: number }): Snapshot {
+  return {
+    ts: s.ts,
+    processes: s.processes ?? {},
+    destinations: s.destinations ?? [],
+    ports: s.ports ?? [],
+    persistence: s.persistence ?? {},
+    posture: s.posture ?? {},
+    accounts: s.accounts ?? [],
+    admins: s.admins ?? [],
+    sshKeys: s.sshKeys ?? {},
+    dns: s.dns ?? [],
+    extensions: s.extensions ?? [],
+    permissions: s.permissions ?? {},
+    tccReadable: s.tccReadable ?? false,
+    proxies: s.proxies ?? [],
+    hostsHash: s.hostsHash ?? "",
+    cron: s.cron ?? {},
+    kexts: s.kexts ?? [],
+  };
 }
 
 export interface Baseline {
@@ -144,6 +185,35 @@ export function parseDnsServers(raw: string): string[] {
   return out;
 }
 
+/**
+ * Parse `scutil --proxy` into the enabled proxies: "HTTP host:port",
+ * "HTTPS host:port", "SOCKS host:port", "PAC url". A silently added proxy
+ * is a classic interception, so each one is a subject in its own right.
+ */
+export function parseProxies(raw: string): string[] {
+  const get = (key: string) => {
+    const m = new RegExp(`^\\s*${key}\\s*:\\s*(.+)$`, "m").exec(raw);
+    return m?.[1]?.trim() ?? null;
+  };
+  const out: string[] = [];
+  for (const [kind, prefix] of [
+    ["HTTP", "HTTP"],
+    ["HTTPS", "HTTPS"],
+    ["SOCKS", "SOCKS"],
+  ] as const) {
+    if (get(`${prefix}Enable`) === "1") {
+      const host = get(`${prefix}Proxy`);
+      const port = get(`${prefix}Port`);
+      if (host) out.push(`${kind} ${host}${port ? `:${port}` : ""}`);
+    }
+  }
+  if (get("ProxyAutoConfigEnable") === "1") {
+    const url = get("ProxyAutoConfigURLString");
+    if (url) out.push(`PAC ${url}`);
+  }
+  return out;
+}
+
 /** Parse `dscl . -read /Groups/admin GroupMembership`. */
 export function parseAdmins(raw: string): string[] {
   const m = /GroupMembership:\s*(.*)/.exec(raw);
@@ -170,8 +240,59 @@ async function sshInventory(): Promise<Record<string, string>> {
   return out;
 }
 
+/** The user's crontab (hashed here) and every /etc/periodic script (hashed by shasum). */
+async function cronInventory(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const tab = await probe("crontab", ["-l"]);
+  if (isOk(tab) && tab.value.trim().length > 0) {
+    out["crontab"] = createHash("sha256").update(tab.value).digest("hex");
+  }
+  for (const dir of ["/etc/periodic/daily", "/etc/periodic/weekly", "/etc/periodic/monthly"]) {
+    const ls = await probe("ls", [dir]);
+    if (!isOk(ls)) continue;
+    const files = ls.value
+      .split("\n")
+      .filter(Boolean)
+      .map((f) => path.join(dir, f));
+    if (files.length === 0) continue;
+    const sums = await probe("shasum", ["-a", "256", ...files], 15_000);
+    if (!hasValue(sums)) continue;
+    for (const line of sums.value.split("\n")) {
+      const [, hash, file] = /^([0-9a-f]{64})\s+\*?(.+)$/.exec(line.trim()) ?? [];
+      if (hash && file) out[file] = hash;
+    }
+  }
+  return out;
+}
+
+/** Privacy grants per service; null when the database is protected from us. */
+async function permissionInventory(): Promise<Record<string, string[]> | null> {
+  const out: Record<string, string[]> = {};
+  for (const svc of TCC_SERVICES) {
+    const clients = await grantsFor(svc.service);
+    if (clients === null) return null;
+    out[svc.service] = [...clients].sort();
+  }
+  return out;
+}
+
 export async function takeSnapshot(inputs: SnapshotInputs, now = Date.now()): Promise<Snapshot> {
-  const [conns, listen, hashes, lamps, users, admins, dnsRes, ssh, sysext] = await Promise.all([
+  const [
+    conns,
+    listen,
+    hashes,
+    lamps,
+    users,
+    admins,
+    dnsRes,
+    ssh,
+    sysext,
+    proxyRes,
+    hosts,
+    kmRes,
+    cron,
+    perms,
+  ] = await Promise.all([
     probe("lsof", ["-nP", "-iTCP", "-sTCP:ESTABLISHED"], 15_000),
     probe("netstat", ["-an", "-p", "tcp"]),
     persistenceHashes(),
@@ -181,6 +302,11 @@ export async function takeSnapshot(inputs: SnapshotInputs, now = Date.now()): Pr
     probe("scutil", ["--dns"]),
     sshInventory(),
     probe("systemextensionsctl", ["list"]),
+    probe("scutil", ["--proxy"]),
+    probe("shasum", ["-a", "256", "/etc/hosts"]),
+    probe("kmutil", ["showloaded", "--list-only", "--no-kernel-components"], 15_000),
+    cronInventory(),
+    permissionInventory(),
   ]);
 
   const processes: Record<string, string> = {};
@@ -237,6 +363,12 @@ export async function takeSnapshot(inputs: SnapshotInputs, now = Date.now()): Pr
     sshKeys: ssh,
     dns: hasValue(dnsRes) ? parseDnsServers(dnsRes.value) : [],
     extensions,
+    permissions: perms ?? {},
+    tccReadable: perms !== null,
+    proxies: hasValue(proxyRes) ? parseProxies(proxyRes.value) : [],
+    hostsHash: hasValue(hosts) ? (/^([0-9a-f]{64})/.exec(hosts.value.trim())?.[1] ?? "") : "",
+    cron,
+    kexts: hasValue(kmRes) ? parseKexts(kmRes.value) : [],
   };
 }
 
@@ -396,7 +528,7 @@ export function diffSnapshots(
   }
 
   const listNew = (
-    key: "accounts" | "admins" | "dns" | "extensions",
+    key: "accounts" | "admins" | "dns" | "extensions" | "kexts" | "proxies",
     make: (value: string) => Omit<MonitorEvent, "id" | "ts">,
   ) => {
     const before = new Set([...(prev?.[key] ?? []), ...baseline[key]]);
@@ -433,6 +565,114 @@ export function diffSnapshots(
     message: `New system extension active: ${e}.`,
     rule: "extension.new",
   }));
+
+  listNew("kexts", (k) => ({
+    severity: "caution",
+    category: "extension",
+    subject: k,
+    message: `Kernel extension loaded: ${k}.`,
+    rule: "extension.new-kext",
+  }));
+  listNew("proxies", (p) => ({
+    severity: "alarm",
+    category: "network",
+    subject: p,
+    message: `A web proxy is now set: ${p}. Traffic may be routed through it.`,
+    rule: "network.proxy-set",
+  }));
+  if (prev) {
+    for (const p of prev.proxies) {
+      if (!curr.proxies.includes(p)) {
+        events.push({
+          id: newId(ts),
+          ts,
+          severity: "info",
+          category: "network",
+          subject: p,
+          message: `Web proxy removed: ${p}.`,
+          rule: "network.proxy-removed",
+        });
+      }
+    }
+    if (prev.hostsHash && curr.hostsHash && prev.hostsHash !== curr.hostsHash) {
+      events.push({
+        id: newId(ts),
+        ts,
+        severity: "alarm",
+        category: "network",
+        subject: "/etc/hosts",
+        message: "/etc/hosts changed: a name may now resolve somewhere else.",
+        rule: "network.hosts-changed",
+      });
+    }
+  }
+
+  for (const [file, hash] of Object.entries(curr.cron)) {
+    const before = prev?.cron[file] ?? baseline.cron[file];
+    if (before === undefined) {
+      events.push({
+        id: newId(ts),
+        ts,
+        severity: "alarm",
+        category: "persistence",
+        subject: file,
+        message:
+          file === "crontab"
+            ? "A crontab appeared for this user."
+            : `New periodic script: ${file}.`,
+        rule: "persistence.cron-new",
+      });
+    } else if (prev?.cron[file] !== undefined && prev.cron[file] !== hash) {
+      events.push({
+        id: newId(ts),
+        ts,
+        severity: "alarm",
+        category: "persistence",
+        subject: file,
+        message: file === "crontab" ? "The crontab changed." : `Periodic script changed: ${file}.`,
+        rule: "persistence.cron-changed",
+      });
+    }
+  }
+
+  // Privacy grants: judged only when both sides could read the database, so
+  // a protected read never looks like every grant being revoked or given.
+  const prevPerms = prev?.tccReadable ? prev : baseline.tccReadable ? baseline : null;
+  if (curr.tccReadable && prevPerms) {
+    for (const svc of TCC_SERVICES) {
+      const now = curr.permissions[svc.service] ?? [];
+      const before = new Set([
+        ...(prev?.tccReadable ? (prev.permissions[svc.service] ?? []) : []),
+        ...(baseline.tccReadable ? (baseline.permissions[svc.service] ?? []) : []),
+      ]);
+      for (const client of now) {
+        if (before.has(client)) continue;
+        events.push({
+          id: newId(ts),
+          ts,
+          severity: svc.highRisk ? "alarm" : "caution",
+          category: "permission",
+          subject: `${svc.service}:${client}`,
+          message: `${client} was granted ${svc.name}.`,
+          rule: "permission.granted",
+        });
+      }
+      if (prev?.tccReadable) {
+        for (const client of prev.permissions[svc.service] ?? []) {
+          if (now.includes(client)) continue;
+          events.push({
+            id: newId(ts),
+            ts,
+            severity: "info",
+            category: "permission",
+            subject: `${svc.service}:${client}`,
+            message: `${client} no longer holds ${svc.name}.`,
+            rule: "permission.revoked",
+          });
+        }
+      }
+    }
+  }
 
   for (const [name, hash] of Object.entries(curr.sshKeys)) {
     const wasBefore = name in (prev?.sshKeys ?? {}) || name in baseline.sshKeys;
@@ -557,7 +797,10 @@ async function realNotify(title: string, message: string): Promise<void> {
 }
 
 export async function loadBaseline(): Promise<Baseline | null> {
-  if (baselineCache === undefined) baselineCache = await readJson<Baseline>(BASELINE_FILE);
+  if (baselineCache === undefined) {
+    const doc = await readJson<Baseline>(BASELINE_FILE);
+    baselineCache = doc ? { ...doc, snapshot: normalizeSnapshot(doc.snapshot) } : null;
+  }
   return baselineCache;
 }
 

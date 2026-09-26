@@ -11,6 +11,7 @@ const CATEGORY_HUE: Record<string, string> = {
   port: "var(--cathode)",
   persistence: "var(--amber)",
   posture: "var(--amber)",
+  permission: "var(--amber)",
   watch: "var(--phosphor)",
   monitor: "var(--muted-foreground)",
 };

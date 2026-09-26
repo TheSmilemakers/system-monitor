@@ -89,6 +89,39 @@ export function PermissionsView({ active }: { active: boolean }) {
             </tbody>
           </table>
         )}
+        {data && data.recent.length > 0 && (
+          <section aria-labelledby="permission-history-heading" className="px-3 py-2">
+            <h3 id="permission-history-heading" className="engraved">
+              Changes, last seven days
+            </h3>
+            <ol className="mt-1 space-y-0.5">
+              {data.recent.map((e) => (
+                <li key={e.id} className="flex gap-3">
+                  <span className="tabular-nums text-muted-foreground">
+                    {new Date(e.ts).toLocaleString()}
+                  </span>
+                  <span
+                    className={
+                      e.severity === "alarm"
+                        ? "text-alarm"
+                        : e.severity === "caution"
+                          ? "text-amber"
+                          : ""
+                    }
+                  >
+                    {e.message}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+        {data && data.readable && data.recent.length === 0 && (
+          <p className="px-3 py-2 text-muted-foreground">
+            No grant has changed in the last seven days. The monitor compares grants every minute
+            while the app is open.
+          </p>
+        )}
       </div>
     </section>
   );

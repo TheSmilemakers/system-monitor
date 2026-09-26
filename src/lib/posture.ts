@@ -91,6 +91,21 @@ export interface SystemExtension {
   state: string;
 }
 
+/**
+ * Parse `kmutil showloaded --list-only` for third-party kernel extensions.
+ * Each row names the bundle id followed by its version in parentheses; Apple's
+ * own are not events, everything else is, since a kext is code in the kernel.
+ */
+export function parseKexts(raw: string): string[] {
+  const out = new Set<string>();
+  for (const line of raw.split("\n")) {
+    const m = /\s([A-Za-z][\w-]*(?:\.[\w-]+)+)\s+\(/.exec(line);
+    const id = m?.[1];
+    if (id && !id.startsWith("com.apple.")) out.add(id);
+  }
+  return [...out].sort();
+}
+
 export function parseSystemExtensions(out: string): SystemExtension[] {
   const items: SystemExtension[] = [];
   for (const line of out.split("\n")) {
@@ -158,19 +173,21 @@ export async function updatesSettled(): Promise<void> {
 // ---------- the report ----------
 
 export async function posture(now = Date.now()): Promise<PostureReport> {
-  const [fwRes, sipRes, gkRes, fvRes, xpVerRes, xpMtimeRes, netRes, sysextRes] = await Promise.all([
-    probe("/usr/libexec/ApplicationFirewall/socketfilterfw", [
-      "--getglobalstate",
-      "--getstealthmode",
-    ]),
-    probe("csrutil", ["status"]),
-    probe("spctl", ["--status"]),
-    probe("fdesetup", ["status"]),
-    probe("plutil", ["-extract", "CFBundleShortVersionString", "raw", XPROTECT_PLIST]),
-    probe("stat", ["-f", "%m", XPROTECT_PLIST]),
-    probe("netstat", ["-an", "-p", "tcp"]),
-    probe("systemextensionsctl", ["list"]),
-  ]);
+  const [fwRes, sipRes, gkRes, fvRes, xpVerRes, xpMtimeRes, netRes, sysextRes, kmRes] =
+    await Promise.all([
+      probe("/usr/libexec/ApplicationFirewall/socketfilterfw", [
+        "--getglobalstate",
+        "--getstealthmode",
+      ]),
+      probe("csrutil", ["status"]),
+      probe("spctl", ["--status"]),
+      probe("fdesetup", ["status"]),
+      probe("plutil", ["-extract", "CFBundleShortVersionString", "raw", XPROTECT_PLIST]),
+      probe("stat", ["-f", "%m", XPROTECT_PLIST]),
+      probe("netstat", ["-an", "-p", "tcp"]),
+      probe("systemextensionsctl", ["list"]),
+      probe("kmutil", ["showloaded", "--list-only", "--no-kernel-components"], 15_000),
+    ]);
   refreshUpdates(now);
 
   const unavailable: PostureReport["unavailable"] = [];
@@ -314,19 +331,25 @@ export async function posture(now = Date.now()): Promise<PostureReport> {
     lamps.push(off("remote", "Remote access", "listening sockets (netstat)", netRes.status));
   }
 
-  // System extensions
+  // System extensions, and legacy kernel extensions (code in the kernel itself).
   if (hasValue(sysextRes)) {
     const exts = parseSystemExtensions(sysextRes.value).filter((e) => /activated/.test(e.state));
+    const kexts = hasValue(kmRes) ? parseKexts(kmRes.value) : [];
+    const parts = [
+      exts.length === 0
+        ? "No third-party system extensions"
+        : `${exts.length} active: ${exts.map((e) => e.name).join(", ")}`,
+      kexts.length > 0
+        ? `${kexts.length} kernel extension${kexts.length === 1 ? "" : "s"} loaded: ${kexts.join(", ")}`
+        : null,
+    ].filter((p): p is string => p !== null);
     lamps.push({
       id: "sysext",
       label: "Extensions",
-      state: exts.length === 0 ? "ok" : "info",
-      summary:
-        exts.length === 0
-          ? "No third-party system extensions"
-          : `${exts.length} active: ${exts.map((e) => e.name).join(", ")}`,
+      state: kexts.length > 0 ? "caution" : exts.length === 0 ? "ok" : "info",
+      summary: parts.join("; "),
       detail:
-        "System extensions run with deep access (network filters, endpoint security, drivers). Each should belong to software you installed on purpose; manage them in System Settings, General, Login Items & Extensions.",
+        "System extensions run with deep access (network filters, endpoint security, drivers). Each should belong to software you installed on purpose; manage them in System Settings, General, Login Items & Extensions. A kernel extension is older and riskier still: it runs inside the kernel, and Apple silicon needs reduced security to load one.",
     });
   } else {
     lamps.push(off("sysext", "Extensions", "system extensions", sysextRes.status));

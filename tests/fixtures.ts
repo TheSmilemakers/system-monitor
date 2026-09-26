@@ -168,6 +168,45 @@ export const SYSEXT_OUTPUT = [
   "enabled\tactive\tteamID\tbundleID (version)\tname\t[state]",
   "*\t*\tW5W395V82Y\tcom.nordvpn.macos.Shield (10.8.1/371)\tNordVPN protection\t[activated enabled]",
 ].join("\n");
+export const PROXY_OUTPUT_NONE = [
+  "<dictionary> {",
+  "  ExceptionsList : <array> {",
+  "    0 : *.local",
+  "  }",
+  "  FTPPassive : 1",
+  "  HTTPEnable : 0",
+  "  HTTPSEnable : 0",
+  "  SOCKSEnable : 0",
+  "  ProxyAutoConfigEnable : 0",
+  "}",
+].join("\n");
+
+export const PROXY_OUTPUT_HTTP = [
+  "<dictionary> {",
+  "  HTTPEnable : 1",
+  "  HTTPPort : 8080",
+  "  HTTPProxy : proxy.example.net",
+  "  HTTPSEnable : 1",
+  "  HTTPSPort : 8443",
+  "  HTTPSProxy : proxy.example.net",
+  "  SOCKSEnable : 0",
+  "  ProxyAutoConfigEnable : 1",
+  "  ProxyAutoConfigURLString : http://pac.example.net/proxy.pac",
+  "}",
+].join("\n");
+
+export const KMUTIL_OUTPUT_APPLE = [
+  "No variant specified, falling back to release",
+  "Index Refs Address            Size       Wired      Name (Version) UUID <Linked Against>",
+  "    1  118 0                  0          0          com.apple.kpi.bsd (24.0.0) 9E1B...",
+  "   32    0 0xfffffe0008f8c000 0x4000     0x4000     com.apple.driver.AppleUSBAudio (652.2) 1A2B...",
+].join("\n");
+
+export const KMUTIL_OUTPUT_THIRD_PARTY = [
+  KMUTIL_OUTPUT_APPLE,
+  "  190    0 0xfffffe000a1c0000 0x10000    0x10000    com.paragon-software.filesystems.ntfs (15.5.0) F00D...",
+].join("\n");
+
 export const SOFTWAREUPDATE_OUTPUT = [
   "Software Update Tool",
   "",
@@ -321,6 +360,7 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         if (args[1] === "-list") return ok("_mbsetupuser\ndaemon\nnobody\nrajan\nroot");
         return ok("GroupMembership: root rajan");
       case "scutil":
+        if (args[0] === "--proxy") return ok(PROXY_OUTPUT_NONE);
         return ok(
           [
             "DNS configuration",
@@ -401,6 +441,10 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         return ok(NETSTAT_OUTPUT);
       case "systemextensionsctl":
         return ok(SYSEXT_OUTPUT);
+      case "kmutil":
+        return ok(KMUTIL_OUTPUT_APPLE);
+      case "crontab":
+        return { status: "failed", error: "crontab: no crontab for rajan" };
       case "softwareupdate":
         return ok(SOFTWAREUPDATE_OUTPUT);
       default:

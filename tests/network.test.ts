@@ -75,6 +75,12 @@ describe("networkReport", () => {
   test("groups by destination, flags trackers and new-since-baseline, lists network listeners", async () => {
     const baselineSnapshot: Snapshot = {
       ts: 0,
+      permissions: {},
+      tccReadable: false,
+      proxies: [],
+      hostsHash: "",
+      cron: {},
+      kexts: [],
       processes: {},
       destinations: ["10.0.0.9"],
       ports: [22],
