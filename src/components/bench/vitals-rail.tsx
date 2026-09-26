@@ -98,12 +98,12 @@ export function VitalsRail({ data, levels }: { data: SystemStats; levels: Levels
         aria-label={`Disk, ${data.disk.percent}% used`}
         className="rounded-md border border-border bg-card px-3 py-2.5"
       >
-        <h3 className="engraved flex items-center justify-between">
+        <h2 className="engraved flex items-center justify-between">
           <span>Disk</span>
           <span className="font-mono text-[11px] tabular-nums normal-case tracking-normal text-muted-foreground">
             {data.disk.used} of {data.disk.total}
           </span>
-        </h3>
+        </h2>
         <div className="mt-2">
           <LedMeter
             value={data.disk.percent}

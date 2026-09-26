@@ -31,6 +31,7 @@ export default function Mini() {
 
   return (
     <main className="flex min-h-screen flex-col gap-2 bg-background p-3 text-foreground">
+      <h1 className="sr-only">System Monitor, mini window</h1>
       <header className="flex items-center justify-between">
         <Link href="/" className="font-display text-sm font-semibold tracking-wide hover:underline">
           System Monitor

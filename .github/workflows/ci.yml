@@ -37,8 +37,9 @@ jobs:
 
       # `bun run check` is the single source of truth for what "green" means.
       # It runs: typecheck, lint (zero warnings), tests, production dependency
-      # audit (hard fail), build, smoke against the production server, smoke
-      # against the dev server, and every QA gate phase at 10/10.
+      # audit (hard fail), build, smoke against the production server, the
+      # axe accessibility gate in the runner's Chrome, smoke against the dev
+      # server, and every QA gate phase at 10/10.
       - name: Full check (same command as local)
         run: bun run check
 

@@ -69,6 +69,9 @@
   --amber: oklch(0.8 0.17 75);
   --cathode: oklch(0.83 0.13 220);
   --alarm: oklch(0.68 0.24 355);
+  /* Ink: the same hues at a lightness that passes 4.5:1 as body text. */
+  --ink-phosphor: var(--phosphor);
+  --ink-amber: var(--amber);
 
   --background: var(--tube);
   --foreground: var(--ivory);
@@ -99,10 +102,12 @@
   --bezel: oklch(0.9 0.01 90);
   --edge: oklch(0.82 0.012 90);
   --ivory: oklch(0.2 0.01 260);
-  --phosphor: oklch(0.55 0.15 155);
-  --amber: oklch(0.58 0.14 75);
-  --cathode: oklch(0.55 0.11 220);
-  --alarm: oklch(0.52 0.21 355);
+  --phosphor: oklch(0.47 0.14 155);
+  --amber: oklch(0.5 0.13 75);
+  --cathode: oklch(0.48 0.11 220);
+  --alarm: oklch(0.45 0.2 355);
+  --ink-phosphor: oklch(0.42 0.13 155);
+  --ink-amber: oklch(0.45 0.12 75);
 
   --muted: oklch(0.87 0.01 90);
   --muted-foreground: oklch(0.45 0.012 250);
@@ -118,10 +123,12 @@
     --bezel: oklch(0.9 0.01 90);
     --edge: oklch(0.82 0.012 90);
     --ivory: oklch(0.2 0.01 260);
-    --phosphor: oklch(0.55 0.15 155);
-    --amber: oklch(0.58 0.14 75);
-    --cathode: oklch(0.55 0.11 220);
-    --alarm: oklch(0.52 0.21 355);
+    --phosphor: oklch(0.47 0.14 155);
+    --amber: oklch(0.5 0.13 75);
+    --cathode: oklch(0.48 0.11 220);
+    --alarm: oklch(0.45 0.2 355);
+    --ink-phosphor: oklch(0.42 0.13 155);
+    --ink-amber: oklch(0.45 0.12 75);
 
     --muted: oklch(0.87 0.01 90);
     --muted-foreground: oklch(0.45 0.012 250);

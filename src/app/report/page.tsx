@@ -33,7 +33,7 @@ export default function ReportPage() {
         <Link href="/" className="font-display text-sm font-semibold tracking-wide hover:underline">
           System Monitor
         </Link>
-        <span className="engraved">Shift report</span>
+        <h1 className="engraved">Shift report</h1>
         <button
           type="button"
           onClick={() => window.print()}
@@ -64,7 +64,11 @@ export default function ReportPage() {
         </p>
       )}
       {text && (
-        <pre className="printout max-w-[80ch] overflow-x-auto rounded-md border border-border bg-card p-4 font-mono text-[12px] leading-[1.35] print:border-0 print:bg-white print:p-0 print:text-[10.5pt]">
+        <pre
+          tabIndex={0}
+          aria-label="Shift report text"
+          className="printout max-w-[80ch] overflow-x-auto rounded-md border border-border bg-card p-4 font-mono text-[12px] leading-[1.35] print:border-0 print:bg-white print:p-0 print:text-[10.5pt]"
+        >
           {text}
         </pre>
       )}

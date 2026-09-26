@@ -145,7 +145,7 @@ export function Inspector({
   return (
     <AnimatePresence>
       {proc && (
-        <motion.aside
+        <motion.div
           key="inspector"
           {...motionProps}
           role="dialog"
@@ -153,7 +153,7 @@ export function Inspector({
           aria-labelledby="inspector-title"
           className="glass fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-border shadow-2xl"
         >
-          <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
             <div className="min-w-0">
               <p className="engraved">Inspector</p>
               <h2 id="inspector-title" className="truncate font-display text-lg font-semibold">
@@ -174,7 +174,7 @@ export function Inspector({
             >
               Close
             </Button>
-          </header>
+          </div>
 
           <div className="min-h-0 flex-1 overflow-auto px-4 py-3 font-sans text-sm">
             {/* Identity badge */}
@@ -447,7 +447,7 @@ export function Inspector({
               {killingPid === proc.pid ? "Terminating…" : "Terminate"}
             </Button>
           </footer>
-        </motion.aside>
+        </motion.div>
       )}
     </AnimatePresence>
   );

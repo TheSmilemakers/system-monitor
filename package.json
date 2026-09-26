@@ -2,7 +2,7 @@
   "name": "system-monitor",
   "version": "0.2.0",
   "private": true,
-  "description": "Lightweight macOS system monitor with process manager and privacy scanner — built with Next.js and shadcn/ui",
+  "description": "Lightweight macOS system monitor with process manager and privacy scanner \u2014 built with Next.js and shadcn/ui",
   "license": "MIT",
   "author": "Rajan",
   "engines": {
@@ -21,12 +21,13 @@
     "audit:prod": "bun audit --prod --audit-level=high",
     "smoke": "node scripts/smoke.mjs",
     "smoke:prod": "node scripts/smoke.mjs --prod",
+    "a11y": "node scripts/a11y.mjs",
     "qa": "node scripts/qa-gate.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "knip": "knip",
     "check:fast": "bun run typecheck && bun run lint && bun run format:check && bun run knip && bun run test",
-    "check": "bun run check:fast && bun run audit:prod && bun run build && bun run smoke:prod && bun run smoke && bun run qa all",
+    "check": "bun run check:fast && bun run audit:prod && bun run build && bun run smoke:prod && bun run a11y && bun run smoke && bun run qa all",
     "preflight": "node scripts/preflight.mjs"
   },
   "dependencies": {
@@ -48,6 +49,7 @@
     "@types/node": "^20.19.43",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "axe-core": "^4.13.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.6",
     "knip": "^6.38.0",

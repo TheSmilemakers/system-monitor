@@ -195,16 +195,15 @@ export function ProcessTable({
         </span>
       </div>
 
-      <div
-        ref={bodyRef}
-        tabIndex={0}
-        role="grid"
-        aria-label="Processes"
-        aria-rowcount={rows.length}
-        aria-keyshortcuts="j k Enter i x /"
-        className="min-h-0 flex-1 overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-phosphor/60"
-      >
-        <table className="w-full border-collapse font-mono text-xs">
+      <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto">
+        <table
+          tabIndex={0}
+          role="grid"
+          aria-label="Processes"
+          aria-rowcount={rows.length}
+          aria-keyshortcuts="j k Enter i x /"
+          className="w-full border-collapse font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-phosphor/60"
+        >
           <caption className="sr-only">
             Running processes. Sort by any column heading. Each row can be inspected or terminated.
           </caption>
@@ -313,7 +312,7 @@ export function ProcessTable({
                       variant="ghost"
                       size="sm"
                       aria-label={`Terminate ${proc.command}, PID ${proc.pid}`}
-                      className="h-6 min-h-6 px-2 font-mono text-xs text-alarm/80 hover:bg-alarm/10 hover:text-alarm"
+                      className="h-6 min-h-6 px-2 font-mono text-xs text-alarm hover:bg-alarm/10 hover:text-alarm"
                       onClick={(e) => {
                         e.stopPropagation();
                         onKill(proc.pid, proc.command);
