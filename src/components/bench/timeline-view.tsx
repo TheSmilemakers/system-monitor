@@ -54,7 +54,7 @@ export function TimelineView({
   const now = data?.timestamp ?? 0;
 
   return (
-    <section aria-labelledby="timeline-heading" className="flex h-[640px] min-h-0 flex-col">
+    <section aria-labelledby="timeline-heading" className="flex h-full min-h-[420px] flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <h2 id="timeline-heading" className="engraved">
           Timeline
@@ -111,7 +111,7 @@ export function TimelineView({
         </ul>
       )}
       <ol
-        className="min-h-0 flex-1 overflow-auto font-mono text-xs"
+        className="relative min-h-0 flex-1 overflow-auto font-mono text-xs"
         aria-label="Events, newest first"
       >
         {data && data.events.length === 0 && (

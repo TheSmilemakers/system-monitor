@@ -69,7 +69,8 @@ describe("sample()", () => {
     expect(s.memory.freeGB).toBe(10.7);
 
     expect(s.swap).toEqual({ totalMB: 2048, usedMB: 512, percent: 25 });
-    expect(s.disk).toEqual({ total: "926Gi", used: "12Gi", available: "800Gi", percent: 2 });
+    // The Data volume, not the sealed system snapshot that "/" reports.
+    expect(s.disk).toEqual({ total: "926Gi", used: "675Gi", available: "227Gi", percent: 75 });
     expect(s.processes.total).toBe(612);
     expect(s.processes.threads).toBe(3210);
     expect(s.processes.top.map((p) => p.pid)).toEqual([648, 637, 900, 902, 901, 903, 950]);

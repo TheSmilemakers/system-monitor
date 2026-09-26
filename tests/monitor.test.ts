@@ -126,15 +126,18 @@ describe("diffSnapshots: the rule table", () => {
 
   test("new destinations and network-bound ports; ephemeral ports are ignored", () => {
     const curr = snap({
-      destinations: ["p59-content.icloud.com", "evil.example.net"],
+      destinations: ["p59-content.icloud.com", "evil.example.net", "*.akamaitechnologies.com"],
       ports: [22, 5900, 60000],
     });
     const events = diffSnapshots(baseline, curr, baseline);
+    // An unknown host is a caution; a known content network is only information.
     expect(events.map((e) => [e.category, e.subject, e.severity])).toEqual([
       ["network", "evil.example.net", "caution"],
+      ["network", "*.akamaitechnologies.com", "info"],
       ["port", "5900", "caution"],
     ]);
-    expect(events[1].message).toContain("Screen Sharing");
+    expect(events[1]?.message).toBe("New destination at Akamai CDN: *.akamaitechnologies.com.");
+    expect(events[2].message).toContain("Screen Sharing");
   });
 
   test("launch items: new (vendor-aware), changed, removed", () => {
@@ -242,8 +245,9 @@ describe("takeSnapshot and tick against fixtures", () => {
       T0,
     );
     expect(s.processes).toEqual({ "/usr/sbin/filecoordinationd": "apple" });
-    // 10.0.0.9 is private (local network) so the bare address is kept; 999.999.1.1 does not resolve.
-    expect(s.destinations).toEqual(["10.0.0.9", "999.999.1.1"]);
+    // 10.0.0.9 is the local network and is not a destination; 999.999.1.1 does not
+    // resolve and folds to its /24, the way rotating addresses are compared.
+    expect(s.destinations).toEqual(["999.999.1.0/24"]);
     expect(s.ports).toEqual([22, 39503]);
     expect(Object.keys(s.persistence).sort()).toEqual([
       "/Library/LaunchAgents/com.acme.helper.plist",

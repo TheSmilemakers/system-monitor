@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { cleanupItem, killProcess, resetMonitorBaseline, stopServer } from "./actions";
+import {
+  cleanupItem,
+  killProcess,
+  resetMonitorBaseline,
+  setNotifications,
+  stopServer,
+} from "./actions";
 import { Annunciator } from "@/components/bench/annunciator";
 import { CommandPalette, type PaletteAction } from "@/components/bench/command-palette";
 import { Header } from "@/components/bench/header";
@@ -234,6 +240,24 @@ export default function Dashboard() {
         run: () => setRefreshInterval((v) => (v === 0 ? 5000 : 0)),
       },
       {
+        id: "notify",
+        label: data?.settings.notifications ? "Mute notifications" : "Unmute notifications",
+        hint: "alarms still land in the Timeline",
+        run: async () => {
+          const next = !(data?.settings.notifications ?? true);
+          const r = await setNotifications(next);
+          announce(
+            r.success ? "ok" : "error",
+            r.success
+              ? next
+                ? "Notifications on."
+                : "Notifications muted; alarms still land in the Timeline."
+              : (r.error ?? "Could not change notifications."),
+          );
+          if (r.success) stats.refresh();
+        },
+      },
+      {
         id: "theme",
         label: "Toggle theme",
         hint: "night shift or daylight",
@@ -249,7 +273,7 @@ export default function Dashboard() {
         },
       },
     ],
-    [openTab, stats, refreshInterval],
+    [openTab, stats, refreshInterval, data, announce],
   );
 
   // M-04: the first-load error is rendered *before* any loading early-return,
@@ -286,7 +310,9 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    // The bench fills the window: a tall window gives the workbench the room, a
+    // short one scrolls the main area rather than clipping it.
+    <div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
       <Header
         data={data}
         refreshInterval={refreshInterval}
@@ -365,9 +391,9 @@ export default function Dashboard() {
         </section>
       )}
 
-      <main className="grid flex-1 gap-3 p-3 sm:p-4 xl:grid-cols-[272px_minmax(0,1fr)]">
+      <main className="relative grid min-h-0 flex-1 gap-3 overflow-auto p-3 sm:p-4 xl:grid-cols-[272px_minmax(0,1fr)] xl:grid-rows-[minmax(0,1fr)]">
         <VitalsRail data={data} levels={levels} />
-        <div className="flex min-h-[560px] flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 xl:min-h-[560px]">
           <Scope
             history={data.history}
             alerts={shownAlerts}
@@ -398,7 +424,7 @@ export default function Dashboard() {
             onTabChange={openTab}
             panels={{
               processes: (
-                <div className="h-[640px]">
+                <div className="h-full min-h-[420px]">
                   <ProcessTable
                     processes={processes}
                     alerts={shownAlerts}

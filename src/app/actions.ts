@@ -11,6 +11,7 @@ import { hasValue, probe } from "@/lib/probe";
 import { processIdentity, sameIdentity, type ProcessIdentity } from "@/lib/process-identity";
 import { watchKey } from "@/lib/process-model";
 import { lastProcesses } from "@/lib/sampler";
+import { saveSettings } from "@/lib/settings";
 import { addWatch, isWatched, removeWatch, WATCH_LIMIT } from "@/lib/watch";
 
 export interface ActionResult {
@@ -404,4 +405,15 @@ export async function unwatch(key: string): Promise<ActionResult> {
   }
   const r = await removeWatch(key);
   return r.removed ? { success: true } : { success: false, error: "That process is not watched" };
+}
+
+/** Let the monitor post macOS notifications, or keep it quiet. Alarms still land in the Timeline. */
+export async function setNotifications(enabled: boolean): Promise<ActionResult> {
+  try {
+    await assertLocalRequest();
+  } catch (e) {
+    return forbidden(e) ?? { success: false, error: "Request refused" };
+  }
+  await saveSettings({ notifications: enabled === true });
+  return { success: true };
 }

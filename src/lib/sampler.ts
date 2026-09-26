@@ -80,6 +80,20 @@ const history: HistoryPoint[] = [];
 const hot = new Map<number, HotEntry>();
 
 let lastTop: ProcessInfo[] = [];
+let lastUp = "";
+
+/** The uptime string from the latest sample, for pages that do not sample themselves. */
+export function lastUptime(): string {
+  return lastUp;
+}
+
+/** `uptime` output to the part after "up", without the user count and load. */
+function parseUptime(raw: string): string {
+  return raw
+    .replace(/.*up\s+/, "")
+    .replace(/,\s*\d+ users?.*/, "")
+    .trim();
+}
 
 /** A tape frame: what the table showed at one sample, for rewinding. */
 export interface TapeFrame {
@@ -179,9 +193,19 @@ export interface StatsSample {
 /** The ps columns the sampler asks for, in order. `comm` is last because it may contain spaces. */
 export const PS_COLUMNS = "user=,pid=,ppid=,%cpu=,%mem=,rss=,etime=,comm=";
 
-/** Basename of an executable path, or the name itself when there is no path. */
+/**
+ * Basename of an executable path, or the name itself when there is no path.
+ * A file named only by its version ("2.1.283" under .../claude/versions/) is
+ * named by the folder that owns the versions, so it reads as "claude 2.1.283".
+ */
 export function displayName(path: string): string {
-  const base = path.split("/").filter(Boolean).pop() ?? path;
+  const parts = path.split("/").filter(Boolean);
+  const base = parts[parts.length - 1] ?? path;
+  if (/^v?\d+(\.\d+){1,3}$/.test(base) && parts.length >= 2) {
+    const parent = parts[parts.length - 2];
+    const owner = parent === "versions" ? parts[parts.length - 3] : parent;
+    if (owner && /^[A-Za-z][\w.-]*$/.test(owner)) return `${owner} ${base}`;
+  }
   return base || "unknown";
 }
 
@@ -195,7 +219,12 @@ export function parsePsDetailed(raw: string, limit = PROCESS_LIMIT): ProcessInfo
     .filter(Boolean)
     .map((line) => {
       const parts = line.trim().split(/\s+/);
-      const path = parts.slice(7).join(" ");
+      // ps wraps the name in parentheses when it cannot report the executable
+      // (exiting, or renamed): keep the name, there is no path to trust.
+      const path = parts
+        .slice(7)
+        .join(" ")
+        .replace(/^\((.*)\)$/, "$1");
       const identity = identityFor(path);
       return {
         user: parts[0] ?? "?",
@@ -259,11 +288,13 @@ export function parseVmStat(raw: string, label: string): number {
 export async function sample(): Promise<StatsSample> {
   const machine = await getMachineInfo();
 
-  const [topRes, vmRes, swapRes, dfRes, psRes, battRes, upRes, netRes] = await Promise.all([
+  const [topRes, vmRes, swapRes, dfDataRes, psRes, battRes, upRes, netRes] = await Promise.all([
     probe("top", ["-l", "1", "-n", "0", "-s", "0"], 8_000),
     probe("vm_stat", []),
     probe("sysctl", ["vm.swapusage"]),
-    probe("df", ["-h", "/"]),
+    // The Data volume holds everything the user can fill; "/" is the sealed
+    // system snapshot and reads a few percent used on every Mac.
+    probe("df", ["-h", "/System/Volumes/Data"]),
     probe("ps", ["-axwwo", PS_COLUMNS], 8_000),
     probe("pmset", ["-g", "batt"]),
     probe("uptime", []),
@@ -277,6 +308,8 @@ export async function sample(): Promise<StatsSample> {
   note("cpu/load (top)", topRes.status);
   note("memory (vm_stat)", vmRes.status);
   note("swap (sysctl)", swapRes.status);
+  // Older layouts without a separate Data volume: fall back to the root.
+  const dfRes = hasValue(dfDataRes) ? dfDataRes : await probe("df", ["-h", "/"]);
   note("disk (df)", dfRes.status);
   note("processes (ps)", psRes.status);
   note("battery (pmset)", battRes.status);
@@ -349,6 +382,7 @@ export async function sample(): Promise<StatsSample> {
 
   recordProcessTraces(allProcs, now);
   lastTop = allProcs;
+  lastUp = hasValue(upRes) ? parseUptime(upRes.value) : lastUp;
 
   // --- Alerts by elapsed time and stable identity (M-03, M-17) ---
   const threshold = CPU_ALERT_THRESHOLD_PER_CORE * 100;
@@ -422,12 +456,7 @@ export async function sample(): Promise<StatsSample> {
       threads: threadMatch ? finiteInt(threadMatch[1], 0) : 0,
       top: allProcs,
     },
-    uptime: hasValue(upRes)
-      ? upRes.value
-          .replace(/.*up\s+/, "")
-          .replace(/,\s*\d+ users?.*/, "")
-          .trim()
-      : "",
+    uptime: hasValue(upRes) ? parseUptime(upRes.value) : "",
     currentUser: safeUsername(),
     battery: battPct
       ? { percent: finiteInt(battPct[1], 0), charging: battRaw.includes("AC Power") }

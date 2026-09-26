@@ -5,6 +5,7 @@ import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
 import { tick } from "@/lib/monitor";
 import { sample } from "@/lib/sampler";
 import { singleFlight } from "@/lib/single-flight";
+import { loadSettings } from "@/lib/settings";
 import { loadWatches } from "@/lib/watch";
 
 /** Core probes — if these fail there is no meaningful dashboard to render. */
@@ -42,6 +43,10 @@ export async function GET() {
     );
   }
 
-  const [top, watches] = await Promise.all([enrichProcesses(data.processes.top), loadWatches()]);
-  return NextResponse.json({ ...data, processes: { ...data.processes, top }, watches });
+  const [top, watches, settings] = await Promise.all([
+    enrichProcesses(data.processes.top),
+    loadWatches(),
+    loadSettings(),
+  ]);
+  return NextResponse.json({ ...data, processes: { ...data.processes, top }, watches, settings });
 }

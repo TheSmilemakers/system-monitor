@@ -22,6 +22,7 @@ export interface ReportInputs {
     connections: number;
     tracker: string | null;
     fresh: boolean;
+    owner?: string | null;
   }[];
   listeners: readonly { port: number; name: string | null }[];
 }
@@ -55,12 +56,16 @@ export function buildReport(i: ReportInputs): string {
   const out: string[] = [];
   out.push(line("="));
   out.push("SYSTEM MONITOR  SHIFT REPORT");
-  out.push(`${i.machine}   printed ${fmtTime(i.now)}   up ${i.uptime}`);
+  out.push(`${i.machine}   printed ${fmtTime(i.now)}   up ${i.uptime}`.slice(0, WIDTH));
   out.push(line("="));
 
   out.push(...heading("Posture"));
   for (const l of i.lamps)
-    out.push(`${STATE_MARK[l.state] ?? "[ ?? ]"} ${pad(l.label, 14)} ${l.summary}`.trimEnd());
+    out.push(
+      `${STATE_MARK[l.state] ?? "[ ?? ]"} ${pad(l.label, 14)} ${l.summary}`
+        .trimEnd()
+        .slice(0, WIDTH),
+    );
 
   out.push(...heading("Top processes by CPU"));
   out.push(`${pad("PID", 7)}${pad("CPU%", 7)}${pad("MEM%", 6)}${pad("TRUST", 13)}PROCESS`);
@@ -93,7 +98,7 @@ export function buildReport(i: ReportInputs): string {
   }
   out.push(`${pad("CONNS", 7)}${pad("NEW", 5)}${pad("DESTINATION", 36)}NOTE`);
   for (const d of i.destinations.slice(0, 25)) {
-    const note = d.tracker ? `tracker: ${d.tracker}` : "";
+    const note = d.tracker ? `tracker: ${d.tracker}` : (d.owner ?? "");
     out.push(
       `${rpad(String(d.connections), 5)}  ${pad(d.fresh ? "NEW" : "", 5)}${pad(d.host, 36)}${note}`
         .trimEnd()

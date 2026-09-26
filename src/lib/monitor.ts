@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  KNOWN_PORTS,
   parseKexts,
   parseListeningPorts,
   parseSystemExtensions,
@@ -11,10 +12,12 @@ import {
   type PostureLamp,
 } from "./posture";
 import { hasValue, isOk, probe } from "./probe";
+import { canonicalDestination, ownerOf } from "./destinations";
 import { locationClass } from "./process-model";
 import { remoteAddressOf, resolveAll } from "./resolve-host";
 import type { ProcessInfo } from "./sampler";
 import { appendJsonl, compactJsonl, readJson, readJsonl, writeJson } from "./store";
+import { loadSettings } from "./settings";
 import { grantsFor, TCC_SERVICES } from "./tcc";
 import { loadWatches, type Watch } from "./watch";
 
@@ -65,7 +68,7 @@ export interface Snapshot {
   ts: number;
   /** Executable path -> trust state. */
   processes: Record<string, string>;
-  /** Resolved hostnames or bare addresses currently connected to. */
+  /** Destinations as canonical keys: an owner's pattern, an address block, or the host (see destinations.ts). */
   destinations: string[];
   /** Ports with a listener bound to the network. */
   ports: number[];
@@ -102,7 +105,10 @@ export function normalizeSnapshot(s: Partial<Snapshot> & { ts: number }): Snapsh
   return {
     ts: s.ts,
     processes: s.processes ?? {},
-    destinations: s.destinations ?? [],
+    // Older baselines hold raw hostnames; fold them the way the rules now compare.
+    destinations: [
+      ...new Set((s.destinations ?? []).map((d) => canonicalDestination(d).key)),
+    ].sort(),
     ports: s.ports ?? [],
     persistence: s.persistence ?? {},
     posture: s.posture ?? {},
@@ -123,6 +129,57 @@ export function normalizeSnapshot(s: Partial<Snapshot> & { ts: number }): Snapsh
 export interface Baseline {
   createdAt: number;
   snapshot: Snapshot;
+  /** Which surfaces the baseline knows; older documents are extended on the next tick. */
+  schema?: number;
+}
+
+/** Bump when the snapshot gains a surface, so an older baseline is extended rather than diffed against nothing. */
+export const BASELINE_SCHEMA = 3;
+
+/** The list and record surfaces an older baseline may lack. */
+const EXTENSIBLE: (keyof Snapshot)[] = [
+  "accounts",
+  "admins",
+  "sshKeys",
+  "dns",
+  "extensions",
+  "permissions",
+  "proxies",
+  "cron",
+  "kexts",
+];
+
+const isEmpty = (v: unknown) =>
+  v === undefined ||
+  v === "" ||
+  (Array.isArray(v) && v.length === 0) ||
+  (typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).length === 0);
+
+/**
+ * Extend a baseline recorded by an older build with the surfaces it lacks,
+ * taking the current snapshot as normal for those. Returns the surfaces
+ * filled, or an empty list when nothing changed.
+ */
+export function extendBaseline(baseline: Baseline, current: Snapshot): (keyof Snapshot)[] {
+  if ((baseline.schema ?? 0) >= BASELINE_SCHEMA) return [];
+  const filled: (keyof Snapshot)[] = [];
+  const s = baseline.snapshot as unknown as Record<string, unknown>;
+  const c = current as unknown as Record<string, unknown>;
+  for (const key of EXTENSIBLE) {
+    if (isEmpty(s[key]) && !isEmpty(c[key])) {
+      s[key] = c[key];
+      filled.push(key);
+    }
+  }
+  if (isEmpty(s.hostsHash) && !isEmpty(c.hostsHash)) {
+    s.hostsHash = c.hostsHash;
+    filled.push("hostsHash");
+  }
+  if (baseline.snapshot.tccReadable === false && current.tccReadable) {
+    baseline.snapshot.tccReadable = true;
+    if (!filled.includes("permissions")) filled.push("permissions");
+  }
+  return filled;
 }
 
 export const BASELINE_FILE = "baseline.json";
@@ -263,15 +320,17 @@ async function cronInventory(): Promise<Record<string, string>> {
   return out;
 }
 
-/** Privacy grants per service; null when the database is protected from us. */
+/** Privacy grants per readable service; null when no database opened at all. */
 async function permissionInventory(): Promise<Record<string, string[]> | null> {
   const out: Record<string, string[]> = {};
+  let any = false;
   for (const svc of TCC_SERVICES) {
-    const clients = await grantsFor(svc.service);
-    if (clients === null) return null;
+    const clients = await grantsFor(svc.service, svc.scope);
+    if (clients === null) continue;
     out[svc.service] = [...clients].sort();
+    any = true;
   }
-  return out;
+  return any ? out : null;
 }
 
 export async function takeSnapshot(inputs: SnapshotInputs, now = Date.now()): Promise<Snapshot> {
@@ -319,13 +378,15 @@ export async function takeSnapshot(inputs: SnapshotInputs, now = Date.now()): Pr
         .filter((a): a is string => a !== null)
     : [];
   const resolved = await resolveAll(addrs);
+  // The local network is not a destination: link-local and private peers
+  // (AirDrop, Handoff, the router) come and go and say nothing about egress.
   const destinations = [
     ...new Set(
-      addrs.map((a) => {
+      addrs.flatMap((a) => {
         const r = resolved.get(a);
-        return r && r.status === "resolved" && r.hostnames[0] !== "<local network>"
-          ? r.hostnames[0]
-          : a;
+        if (r && r.status === "resolved" && r.hostnames[0] === "<local network>") return [];
+        const host = r && r.status === "resolved" ? (r.hostnames[0] ?? a) : a;
+        return [canonicalDestination(host).key];
       }),
     ),
   ].sort();
@@ -379,13 +440,19 @@ function processEvent(p: string, trust: string, ts: number): MonitorEvent | null
   const where = locationClass(p);
   const name = p.split("/").pop() ?? p;
   if (where.flag) {
+    // Signed software (Electron helpers, updaters, crash handlers) runs from
+    // temporary folders as a matter of course; an identity behind the
+    // signature makes that information. No identity makes it an alarm.
+    const signed = trust === "developer-id" || trust === "app-store" || trust === "apple";
     return {
       id: newId(ts),
       ts,
-      severity: "alarm",
+      severity: signed ? "info" : "alarm",
       category: "process",
       subject: p,
-      message: `${name} is running from the ${where.label}, which is unusual for code.`,
+      message: signed
+        ? `${name} (signed) is running from the ${where.label}.`
+        : `${name} is running from the ${where.label}, which is unusual for code.`,
       rule: "process.unusual-location",
     };
   }
@@ -452,20 +519,24 @@ export function diffSnapshots(
 
   for (const host of curr.destinations) {
     if (seenBefore("destinations", host)) continue;
+    // A known content network or cloud is information; an unknown host is a caution.
+    const owner = ownerOf(host);
     events.push({
       id: newId(ts),
       ts,
-      severity: "caution",
+      severity: owner ? "info" : "caution",
       category: "network",
       subject: host,
-      message: `New outbound destination: ${host}.`,
+      message: owner
+        ? `New destination at ${owner}: ${host}.`
+        : `New outbound destination: ${host}.`,
       rule: "network.new-destination",
     });
   }
 
   for (const port of curr.ports) {
     if (port >= EPHEMERAL_PORT_MIN || seenBefore("ports", port)) continue;
-    const known = REMOTE_PORTS[port];
+    const known = REMOTE_PORTS[port] ?? KNOWN_PORTS[port];
     events.push({
       id: newId(ts),
       ts,
@@ -633,16 +704,17 @@ export function diffSnapshots(
     }
   }
 
-  // Privacy grants: judged only when both sides could read the database, so
-  // a protected read never looks like every grant being revoked or given.
-  const prevPerms = prev?.tccReadable ? prev : baseline.tccReadable ? baseline : null;
-  if (curr.tccReadable && prevPerms) {
+  // Privacy grants: a service is judged only when this tick and the previous
+  // tick or the baseline could all read its database, so a protected read
+  // never looks like every grant being revoked or given.
+  if (curr.tccReadable) {
     for (const svc of TCC_SERVICES) {
-      const now = curr.permissions[svc.service] ?? [];
-      const before = new Set([
-        ...(prev?.tccReadable ? (prev.permissions[svc.service] ?? []) : []),
-        ...(baseline.tccReadable ? (baseline.permissions[svc.service] ?? []) : []),
-      ]);
+      const now = curr.permissions[svc.service];
+      if (!now) continue;
+      const prevList = prev?.tccReadable ? prev.permissions[svc.service] : undefined;
+      const baseList = baseline.tccReadable ? baseline.permissions[svc.service] : undefined;
+      if (!prevList && !baseList) continue;
+      const before = new Set([...(prevList ?? []), ...(baseList ?? [])]);
       for (const client of now) {
         if (before.has(client)) continue;
         events.push({
@@ -655,8 +727,8 @@ export function diffSnapshots(
           rule: "permission.granted",
         });
       }
-      if (prev?.tccReadable) {
-        for (const client of prev.permissions[svc.service] ?? []) {
+      if (prevList) {
+        for (const client of prevList) {
           if (now.includes(client)) continue;
           events.push({
             id: newId(ts),
@@ -803,7 +875,7 @@ export async function loadBaseline(): Promise<Baseline | null> {
 }
 
 export async function saveBaseline(snapshot: Snapshot, now = Date.now()): Promise<Baseline> {
-  const b: Baseline = { createdAt: now, snapshot };
+  const b: Baseline = { createdAt: now, snapshot, schema: BASELINE_SCHEMA };
   await writeJson(BASELINE_FILE, b);
   baselineCache = b;
   return b;
@@ -844,20 +916,55 @@ export async function tick(
         },
       ];
     } else {
-      events = dedupe(
-        [
-          ...diffSnapshots(previous, snapshot, baseline.snapshot),
-          ...diffWatches(previous, snapshot, await loadWatches(), now),
-        ],
-        now,
-      );
+      // A baseline from an older build knows nothing of the newer surfaces;
+      // diffing against its emptiness would announce every account, resolver
+      // and key as new on every start. Extend it with what is there now.
+      const filled = extendBaseline(baseline, snapshot);
+      const extended: MonitorEvent[] = [];
+      if (filled.length > 0) {
+        baseline.schema = BASELINE_SCHEMA;
+        await writeJson(BASELINE_FILE, baseline);
+        extended.push({
+          id: newId(now),
+          ts: now,
+          severity: "info",
+          category: "monitor",
+          subject: "baseline",
+          message: `Baseline extended with surfaces this build added: ${filled.join(", ")}. What is there now is taken as normal for them.`,
+          rule: "monitor.baseline",
+        });
+      } else if ((baseline.schema ?? 0) < BASELINE_SCHEMA) {
+        baseline.schema = BASELINE_SCHEMA;
+        await writeJson(BASELINE_FILE, baseline);
+      }
+      events = [
+        ...extended,
+        ...dedupe(
+          [
+            ...diffSnapshots(previous, snapshot, baseline.snapshot),
+            ...diffWatches(previous, snapshot, await loadWatches(), now),
+          ],
+          now,
+        ),
+      ];
     }
     previous = snapshot;
     await record(events);
-    for (const e of events) {
-      if (e.severity !== "alarm" && e.category !== "watch") continue;
+    // One notification per tick, never one per event, and none when muted.
+    const urgent = events.filter((e) => e.severity === "alarm" || e.category === "watch");
+    // The native shell posts notifications as itself and sets SM_NOTIFIER=app.
+    if (
+      urgent.length > 0 &&
+      process.env.SM_NOTIFIER !== "app" &&
+      (await loadSettings()).notifications
+    ) {
+      const first = urgent[0];
+      const message =
+        urgent.length === 1 || !first
+          ? (first?.message ?? "")
+          : `${urgent.length} alarms. ${first.message} Open the Timeline for the rest.`;
       try {
-        await (notifier ?? realNotify)("System Monitor", e.message);
+        await (notifier ?? realNotify)("System Monitor", message);
       } catch {
         /* notifications are best effort */
       }

@@ -480,6 +480,7 @@ export function ProcessTable({
               type="button"
               onClick={() => setFilter(f.key)}
               aria-pressed={filter === f.key}
+              title={f.hint}
               className={`rounded border px-2 py-0.5 font-mono text-[11px] ${
                 filter === f.key
                   ? "border-phosphor/60 bg-phosphor/10 text-foreground"
@@ -540,7 +541,9 @@ export function ProcessTable({
         </span>
       </div>
 
-      <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto">
+      {/* Positioned, so the rows' screen-reader-only spans (absolute) stay inside
+          this scroller instead of stretching the document to the table's height. */}
+      <div ref={bodyRef} className="relative min-h-0 flex-1 overflow-auto">
         <table
           tabIndex={0}
           role="grid"

@@ -19,7 +19,7 @@ export function PermissionsView({ active }: { active: boolean }) {
   const shortName = (client: string) => client.split(".").pop() || client;
 
   return (
-    <section aria-labelledby="permissions-heading" className="flex h-[640px] min-h-0 flex-col">
+    <section aria-labelledby="permissions-heading" className="flex h-full min-h-[420px] flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <h2 id="permissions-heading" className="engraved">
           Permissions
@@ -34,7 +34,7 @@ export function PermissionsView({ active }: { active: boolean }) {
               : "loading"}
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto font-mono text-xs">
+      <div className="relative min-h-0 flex-1 overflow-auto font-mono text-xs">
         {data && !data.readable && (
           <div role="status" className="m-3 rounded border border-amber/30 bg-amber/5 p-3">
             <p className="font-medium text-amber">The permission database could not be read.</p>
@@ -66,13 +66,26 @@ export function PermissionsView({ active }: { active: boolean }) {
                   <td className="px-3 py-1.5">
                     <span
                       className="lamp"
-                      data-state={g.highRisk ? (g.clients.length ? "caution" : "ok") : "info"}
+                      data-state={
+                        !g.readable
+                          ? "off"
+                          : g.highRisk
+                            ? g.clients.length
+                              ? "caution"
+                              : "ok"
+                            : "info"
+                      }
                     >
                       <span>{g.name}</span>
                     </span>
                   </td>
                   <td className="px-2 py-1.5">
-                    {g.clients.length === 0 ? (
+                    {!g.readable ? (
+                      <span className="text-amber">
+                        could not read: this service is recorded in the system database, which needs
+                        Full Disk Access
+                      </span>
+                    ) : g.clients.length === 0 ? (
                       <span className="text-muted-foreground">nothing</span>
                     ) : (
                       <ul className="flex flex-wrap gap-x-3 gap-y-0.5">

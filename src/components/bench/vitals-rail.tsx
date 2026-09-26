@@ -32,7 +32,10 @@ function swapText(usedMB: number): string {
 export function VitalsRail({ data, levels }: { data: SystemStats; levels: Levels }) {
   const history = sliceWindow(data.history, null, SCOPE_WINDOW_MS);
   return (
-    <div className="flex flex-col gap-2" aria-label="System vitals">
+    <div
+      className="relative flex min-h-0 flex-col gap-2 xl:overflow-auto"
+      aria-label="System vitals"
+    >
       <Vital
         label="CPU"
         hint="Share of all cores busy over the last sample, user plus system. Elevated above 70%, critical above 90%; sustained high CPU with nothing obviously running is worth a look at the table."

@@ -37,7 +37,12 @@ first run; and writes what changed to the Timeline tab. Alarms (an unsigned
 binary from Downloads, a launch item from an unrecognised vendor, SIP off, a new
 proxy, a Screen Recording grant) also post a macOS notification. The Permissions
 tab lists the last week of grant changes.
-"Reset baseline" makes the current state normal. State lives in
+Alarms post at most one macOS notification per check (a count and the first
+message when there are several); "Mute notifications" in the palette keeps the
+monitor quiet and the Timeline still fills. Notifications are posted through
+`osascript`, so macOS shows them as coming from Script Editor. A baseline from
+an older build is extended with the surfaces it lacks on the next check rather
+than treated as empty. "Reset baseline" makes the current state normal. State lives in
 `~/Library/Application Support/system-monitor` and never leaves the machine.
 
 Watch: the inspector's Watch button pins a process by executable path. The
@@ -92,6 +97,22 @@ to check); Apple's own manual pages; and heuristics from the path, bundle
 and signature. The identity card also says how the process was launched: by
 which launch agent or daemon, by launchd on demand, or by its parent. Nothing
 leaves the machine.
+
+## The native shell
+
+`scripts/build-shell.sh` compiles `desktop/shell/main.m` (Objective-C, so the
+Command Line Tools' clang suffices even when their Swift toolchain is out of
+step with the SDK) into
+`~/Desktop/SystemMonitor.app`: a window of its own around the bench, with the
+app in the dock, notifications posted as System Monitor rather than through
+Script Editor, an alarm count on the dock badge, and a server that starts with
+the app (production build, built on first run) and stops when you quit. Its
+Monitor menu mutes notifications and rebuilds the server; View opens the
+report or the bench in a browser. It needs only the Command Line Tools. The
+project it runs is `SM_PROJECT_DIR`, else the path in
+`~/Library/Application Support/system-monitor/project`, else
+`~/projects/system-monitor`. The server it starts sees `SM_NOTIFIER=app` and
+leaves notifications to the shell.
 
 ## Features
 

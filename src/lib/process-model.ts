@@ -22,14 +22,26 @@ export type SortKey =
 export type SortDir = "asc" | "desc";
 export type FilterKey = "all" | "mine" | "system" | "untrusted" | "alerted" | "networked" | "new";
 
-export const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: "all", label: "all" },
-  { key: "mine", label: "mine" },
-  { key: "system", label: "system" },
-  { key: "untrusted", label: "unsigned or ad-hoc" },
-  { key: "alerted", label: "alerted" },
-  { key: "networked", label: "networked" },
-  { key: "new", label: "new since baseline" },
+export const FILTERS: { key: FilterKey; label: string; hint: string }[] = [
+  { key: "all", label: "all", hint: "Every process the sampler lists" },
+  { key: "mine", label: "mine", hint: "Processes running as your account" },
+  {
+    key: "system",
+    label: "system",
+    hint: "Apple software, root, and the underscore service accounts",
+  },
+  {
+    key: "untrusted",
+    label: "unsigned or ad-hoc",
+    hint: "Executables with no identity behind their signature, or none at all",
+  },
+  { key: "alerted", label: "alerted", hint: "Sustained high CPU right now" },
+  { key: "networked", label: "networked", hint: "Holding at least one established TCP connection" },
+  {
+    key: "new",
+    label: "new since baseline",
+    hint: "Executables that were not running when the baseline was recorded; Reset baseline on the Timeline tab makes now the reference",
+  },
 ];
 
 /** Higher is more trusted. Pending sits with unknown so it never sorts as bad or good. */

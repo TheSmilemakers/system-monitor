@@ -1,7 +1,9 @@
 import { loadBaseline } from "./monitor";
-import { parseListeningPorts, REMOTE_PORTS } from "./posture";
+import { KNOWN_PORTS, parseListeningPorts, REMOTE_PORTS } from "./posture";
 import { hasValue, probe, type ProbeStatus } from "./probe";
 import { remoteAddressOf, resolveAll } from "./resolve-host";
+import { canonicalDestination } from "./destinations";
+import { lastProcesses } from "./sampler";
 import { isAppleTelemetry, matchTracker } from "./trackers";
 
 /**
@@ -21,6 +23,8 @@ export interface NetConnection {
   tracker: { category: string; description: string; severity: string } | null;
   appleTelemetry: boolean;
   newSinceBaseline: boolean;
+  /** Who runs the destination, when its name or address block says. */
+  owner: string | null;
 }
 
 export interface Destination {
@@ -29,6 +33,7 @@ export interface Destination {
   processes: string[];
   tracker: NetConnection["tracker"];
   newSinceBaseline: boolean;
+  owner: string | null;
 }
 
 export interface Listener {
@@ -47,8 +52,11 @@ export interface NetworkReport {
 /** Parse `lsof -nP -iTCP` rows (all states). */
 export function parseLsofAll(
   raw: string,
-): Omit<NetConnection, "host" | "tracker" | "appleTelemetry" | "newSinceBaseline">[] {
-  const out: Omit<NetConnection, "host" | "tracker" | "appleTelemetry" | "newSinceBaseline">[] = [];
+): Omit<NetConnection, "host" | "tracker" | "appleTelemetry" | "newSinceBaseline" | "owner">[] {
+  const out: Omit<
+    NetConnection,
+    "host" | "tracker" | "appleTelemetry" | "newSinceBaseline" | "owner"
+  >[] = [];
   for (const line of raw.split("\n").slice(1)) {
     const parts = line.trim().split(/\s+/);
     if (parts.length < 9) continue;
@@ -75,6 +83,8 @@ export async function networkReport(now = Date.now()): Promise<NetworkReport> {
   ]);
   const unavailable: NetworkReport["unavailable"] = [];
   const known = new Set(baseline?.snapshot.destinations ?? []);
+  // lsof truncates and escapes command names ("Code\\x20-"); the sampler knows them.
+  const nameByPid = new Map(lastProcesses().map((p) => [p.pid, p.command]));
 
   const rows = hasValue(lsofRes) ? parseLsofAll(lsofRes.value) : [];
   if (!hasValue(lsofRes) && lsofRes.status !== "failed") {
@@ -92,13 +102,15 @@ export async function networkReport(now = Date.now()): Promise<NetworkReport> {
       res && res.status === "resolved" && res.hostnames[0] !== "<local network>"
         ? (res.hostnames[0] ?? null)
         : null;
-    const key = host ?? addr ?? "";
+    const canon = canonicalDestination(host ?? addr ?? "");
     return {
       ...r,
+      process: nameByPid.get(r.pid) ?? r.process.replace(/\\x20/g, " "),
       host,
       tracker: host ? matchTracker(host) : null,
       appleTelemetry: host ? isAppleTelemetry(host) : false,
-      newSinceBaseline: addr !== null && baseline !== null && !known.has(key),
+      newSinceBaseline: addr !== null && baseline !== null && !known.has(canon.key),
+      owner: canon.owner,
     };
   });
 
@@ -112,6 +124,7 @@ export async function networkReport(now = Date.now()): Promise<NetworkReport> {
       processes: [],
       tracker: c.tracker,
       newSinceBaseline: c.newSinceBaseline,
+      owner: c.owner,
     };
     d.connections++;
     if (!d.processes.includes(c.process)) d.processes.push(c.process);
@@ -123,7 +136,7 @@ export async function networkReport(now = Date.now()): Promise<NetworkReport> {
   if (hasValue(netRes)) {
     listeners = [...parseListeningPorts(netRes.value)]
       .sort((a, b) => a - b)
-      .map((port) => ({ port, name: REMOTE_PORTS[port] ?? null }));
+      .map((port) => ({ port, name: REMOTE_PORTS[port] ?? KNOWN_PORTS[port] ?? null }));
   } else {
     unavailable.push({ check: "listeners (netstat)", reason: netRes.status });
   }
