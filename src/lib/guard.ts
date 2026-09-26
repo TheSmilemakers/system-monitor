@@ -23,8 +23,8 @@ export class ForbiddenError extends Error {
 function hostnameOf(hostHeader: string): string {
   const trimmed = hostHeader.trim();
   // Bracketed IPv6 literal, optionally with a port.
-  const v6 = trimmed.match(/^(\[[^\]]+\])(?::\d+)?$/);
-  if (v6) return v6[1];
+  const v6 = trimmed.match(/^(\[[^\]]+\])(?::\d+)?$/)?.[1];
+  if (v6) return v6;
   return trimmed.replace(/:\d+$/, "");
 }
 

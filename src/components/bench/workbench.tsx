@@ -50,8 +50,9 @@ export interface WorkbenchProps {
 export function Workbench({ tab, onTabChange, panels }: WorkbenchProps) {
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const idx = TABS.findIndex((t) => t.key === tab);
-    if (e.key === "ArrowRight") onTabChange(TABS[(idx + 1) % TABS.length].key);
-    else if (e.key === "ArrowLeft") onTabChange(TABS[(idx - 1 + TABS.length) % TABS.length].key);
+    if (e.key === "ArrowRight") onTabChange(TABS[(idx + 1) % TABS.length]?.key ?? tab);
+    else if (e.key === "ArrowLeft")
+      onTabChange(TABS[(idx - 1 + TABS.length) % TABS.length]?.key ?? tab);
     else return;
     e.preventDefault();
     (
@@ -179,13 +180,16 @@ export function ScanView({ state, killingPid, onKill, onClose }: ScanViewProps) 
                           {SEVERITY_LABEL[f.severity] ?? f.severity}
                         </Badge>
                       </div>
-                      {f.processes.length > 0 && (
+                      {f.processes[0] !== undefined && (
                         <Button
                           variant="ghost"
                           size="sm"
                           aria-label={`Terminate ${f.processes[0].name}, PID ${f.processes[0].pid}`}
                           className="h-6 min-h-6 shrink-0 px-2 font-mono text-[10px] text-alarm hover:bg-alarm/10"
-                          onClick={() => onKill(f.processes[0].pid, f.processes[0].name)}
+                          onClick={() => {
+                            const lead = f.processes[0];
+                            if (lead) onKill(lead.pid, lead.name);
+                          }}
                           disabled={killingPid === f.processes[0].pid}
                         >
                           kill {f.processes[0].name}

@@ -186,6 +186,7 @@ describe("ProcessTable", () => {
     const calls = renderTable();
     const grid = screen.getByRole("grid", { name: "Processes" });
     const row = within(grid).getAllByRole("row")[1];
+    if (!row) throw new Error("expected a body row");
     fireEvent.click(row);
     expect(calls.select).toEqual([648]);
     fireEvent.doubleClick(row);

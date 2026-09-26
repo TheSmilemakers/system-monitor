@@ -96,7 +96,7 @@ describe("networkReport", () => {
       ["10.0.0.9", 1, false],
       ["999.999.1.1", 1, true],
     ]);
-    expect(r.destinations[0].processes).toEqual(["Google"]);
+    expect(r.destinations[0]?.processes).toEqual(["Google"]);
     expect(r.listeners).toEqual([
       { port: 22, name: "Remote Login (SSH)" },
       { port: 39503, name: null },
@@ -122,6 +122,6 @@ describe("networkReport", () => {
     expect(res.status).toBe(200);
     const body = parseNetwork(await res.json());
     expect(body.destinations.length).toBe(2);
-    expect(body.listeners[0].port).toBe(22);
+    expect(body.listeners[0]?.port).toBe(22);
   });
 });

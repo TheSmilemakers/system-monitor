@@ -323,7 +323,7 @@ export async function assessProcess(pid: number): Promise<AssessOutcome> {
       ? "rejected"
       : "unknown";
   const sourceMatch = /source=([^\n]+)/.exec(combined);
-  const source = sourceMatch ? sourceMatch[1].trim() : null;
+  const source = sourceMatch?.[1]?.trim() ?? null;
   return {
     success: true,
     path: exe,

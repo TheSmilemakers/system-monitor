@@ -86,7 +86,7 @@ export function extractManSummary(clean: string): ManSummary {
     if (start === -1) return [];
     const out: string[] = [];
     for (let i = start + 1; i < lines.length; i++) {
-      const l = lines[i];
+      const l = lines[i] ?? "";
       if (/^\S/.test(l) && l.trim().length > 0) break; // next heading
       out.push(l);
     }
@@ -94,7 +94,7 @@ export function extractManSummary(clean: string): ManSummary {
   };
   const nameLine = section("NAME").find((l) => l.trim().length > 0) ?? "";
   const dash = nameLine.match(/\s[–—-]\s+(.+)$/);
-  const name = dash ? dash[1].trim() : null;
+  const name = dash?.[1]?.trim() ?? null;
 
   const desc = section("DESCRIPTION");
   const paragraphs: string[] = [];

@@ -17,25 +17,25 @@ describe("ps aux parsing", () => {
   test("skips the header and parses rows", () => {
     const rows = parsePsAux(PS_FIXTURE);
     expect(rows).toHaveLength(3);
-    expect(rows[0].pid).toBe(43830);
-    expect(rows[0].user).toBe("rajan");
-    expect(rows[0].cpu).toBeCloseTo(92.4);
+    expect(rows[0]?.pid).toBe(43830);
+    expect(rows[0]?.user).toBe("rajan");
+    expect(rows[0]?.cpu).toBeCloseTo(92.4);
   });
 
   test("orders by CPU descending", () => {
     const rows = parsePsAux(PS_FIXTURE);
-    expect(rows[0].cpu).toBeGreaterThanOrEqual(rows[1].cpu);
-    expect(rows[1].cpu).toBeGreaterThanOrEqual(rows[2].cpu);
+    expect(rows[0]?.cpu).toBeGreaterThanOrEqual(rows[1]?.cpu ?? Infinity);
+    expect(rows[1]?.cpu).toBeGreaterThanOrEqual(rows[2]?.cpu ?? Infinity);
   });
 
   test("converts RSS from KB to bytes", () => {
     const rows = parsePsAux(PS_FIXTURE);
-    expect(rows[0].rss).toBe(512000 * 1024);
+    expect(rows[0]?.rss).toBe(512000 * 1024);
   });
 
   test("derives a readable command name", () => {
     const rows = parsePsAux(PS_FIXTURE);
-    expect(rows[0].command).toBe("Foo");
+    expect(rows[0]?.command).toBe("Foo");
   });
 
   test("respects the row limit", () => {

@@ -157,7 +157,7 @@ describe("history runs on a server cadence (M-03)", () => {
     setSystemTime(new Date(T0.getTime() + HISTORY_WINDOW_MS + 1));
     const s = await sample();
     expect(s.history).toHaveLength(1);
-    expect(s.history[0].ts).toBe(T0.getTime() + HISTORY_WINDOW_MS + 1);
+    expect(s.history[0]?.ts).toBe(T0.getTime() + HISTORY_WINDOW_MS + 1);
   });
 
   test("history is a copy, not the live buffer", async () => {

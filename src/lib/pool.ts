@@ -18,7 +18,8 @@ export async function mapLimit<T, R>(
     for (;;) {
       const i = next++;
       if (i >= items.length) return;
-      results[i] = await fn(items[i], i);
+      // i < items.length was checked above, so the element exists.
+      results[i] = await fn(items[i] as T, i);
     }
   });
 

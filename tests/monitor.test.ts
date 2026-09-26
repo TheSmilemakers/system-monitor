@@ -128,7 +128,7 @@ describe("diffSnapshots: the rule table", () => {
       ["network", "evil.example.net", "caution"],
       ["port", "5900", "caution"],
     ]);
-    expect(events[1].message).toContain("Screen Sharing");
+    expect(events[1]?.message).toContain("Screen Sharing");
   });
 
   test("launch items: new (vendor-aware), changed, removed", () => {
@@ -287,7 +287,7 @@ describe("takeSnapshot and tick against fixtures", () => {
     );
     expect(later).toHaveLength(1);
     expect(later[0]).toMatchObject({ severity: "alarm", rule: "process.unusual-location" });
-    expect(notifications).toEqual([later[0].message]);
+    expect(notifications).toEqual([later[0]?.message ?? ""]);
 
     // Persisted, newest first.
     const events = await recentEvents();
@@ -301,7 +301,7 @@ describe("takeSnapshot and tick against fixtures", () => {
     await resetBaseline(extra, T0 + 2 * TICK_INTERVAL_MS);
     expect(await tick(extra, T0 + 3 * TICK_INTERVAL_MS, true)).toEqual([]);
     const events = await recentEvents();
-    expect(events[0].message).toContain("Baseline reset");
+    expect(events[0]?.message).toContain("Baseline reset");
   });
 
   test("compaction drops events past retention", async () => {
@@ -336,7 +336,7 @@ describe("takeSnapshot and tick against fixtures", () => {
     expect(res.status).toBe(200);
     const body = parseTimeline(await res.json());
     expect(body.baselineAt).toBe(T0);
-    expect(body.events[0].rule).toBe("monitor.baseline");
+    expect(body.events[0]?.rule).toBe("monitor.baseline");
     const none = parseTimeline(
       await (
         await getTimeline(new Request(`http://127.0.0.1:3000/api/timeline?since=${T0 + 1}`))

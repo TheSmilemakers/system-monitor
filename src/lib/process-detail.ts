@@ -39,7 +39,7 @@ export function parseTopPid(raw: string, pid: number): { threads: number; energy
   for (const line of raw.split("\n")) {
     const parts = line.trim().split(/\s+/);
     if (parts[0] !== String(pid) || parts.length < 3) continue;
-    const threads = finiteInt(parts[1].split("/")[0], 0);
+    const threads = finiteInt((parts[1] ?? "").split("/")[0] ?? null, 0);
     return { threads, energy: finiteNumber(parts[2], 0) };
   }
   return null;
@@ -51,10 +51,10 @@ export function parseLsofConnections(raw: string): Omit<Connection, "host">[] {
   for (const line of raw.split("\n").slice(1)) {
     const parts = line.trim().split(/\s+/);
     if (parts.length < 9) continue;
-    const proto = parts[7];
-    const name = parts[8];
+    const proto = parts[7] ?? "";
+    const name = parts[8] ?? "";
     const state = (parts[9] ?? "").replace(/^\(|\)$/g, "");
-    const [local, remote = ""] = name.split("->");
+    const [local = "", remote = ""] = name.split("->");
     out.push({ proto, local, remote, state });
   }
   return out;

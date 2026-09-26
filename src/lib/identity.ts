@@ -93,7 +93,7 @@ export function parseCodesign(output: string, ok: boolean): Identity {
   }
   if (authorities.length > 0) {
     // Signed by something we do not classify: report the leaf authority.
-    return { trust: "developer-id", publisher: authorities[0], teamId, bundleId };
+    return { trust: "developer-id", publisher: authorities[0] ?? null, teamId, bundleId };
   }
   return UNKNOWN_IDENTITY;
 }

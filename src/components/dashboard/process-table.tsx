@@ -113,8 +113,8 @@ export function ProcessTable({
           ? 0
           : rows.length - 1
         : Math.min(Math.max(idx + delta, 0), rows.length - 1);
-    const pid = rows[next].pid;
-    onSelect(pid);
+    const pid = rows[next]?.pid;
+    if (pid !== undefined) onSelect(pid);
     bodyRef.current
       ?.querySelector<HTMLElement>(`[data-pid="${pid}"]`)
       ?.scrollIntoView({ block: "nearest" });
