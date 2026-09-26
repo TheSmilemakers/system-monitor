@@ -47,7 +47,7 @@ export function TapeScrubber({
       <span
         className="segment min-w-[9ch] text-base"
         aria-live="polite"
-        style={{ color: at === null ? "var(--ink-phosphor)" : "var(--ink-amber)" }}
+        style={{ color: at === null ? "var(--phosphor)" : "var(--amber)" }}
       >
         {shown === null
           ? "--:--:--"
