@@ -57,6 +57,10 @@ The tape under the scope rewinds the last hour: drag the counter and the scope
 and the process table show that moment (top 50 processes and the alerts, as
 they were). Actions are disabled on the tape; Escape or Back to live returns.
 
+The tape can be dragged: pull the scope's time axis or the counter sideways
+and the window follows the hand; a flick coasts and settles on a recorded
+frame. The range input remains for the keyboard.
+
 `/report` (the Report link in the header) prints a fixed-width shift report:
 posture, top processes with trust, network listeners and destinations, and the
 last 24 hours of timeline events. Print or save as PDF from the page, or copy

@@ -3,6 +3,8 @@
 import { useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
 
+import { useScrub } from "@/hooks/use-scrub";
+
 import {
   alertTicks,
   buildTraces,
@@ -20,6 +22,10 @@ export interface ScopeProps {
   net: { inKBps: number; outKBps: number };
   /** When set, the window ends at this time (the tape); otherwise at the newest sample. */
   endAt?: number | null;
+  /** Recorded frames; with these and the two callbacks the time axis can be dragged. */
+  frames?: number[];
+  onScrub?: (ts: number) => void;
+  onLive?: () => void;
 }
 
 const HEIGHT = 168;
@@ -30,9 +36,20 @@ const HEIGHT = 168;
  * translucent tube-coloured wash before each trace pass, so the previous
  * frame persists faintly, like phosphor. Alert onsets are ticks on the time
  * axis. Time is the animation; nothing moves between samples. Under reduced
- * motion the wash is opaque, so there is no ghosting at all.
+ * motion the wash is opaque, so there is no ghosting at all. The axis is also
+ * the scrubber: drag it and the window follows the hand, a flick carries on
+ * and settles on a recorded frame.
  */
-export function Scope({ history: fullHistory, alerts, cores, net, endAt = null }: ScopeProps) {
+export function Scope({
+  history: fullHistory,
+  alerts,
+  cores,
+  net,
+  endAt = null,
+  frames = [],
+  onScrub,
+  onLive,
+}: ScopeProps) {
   const history = useMemo(
     () => sliceWindow(fullHistory, endAt, SCOPE_WINDOW_MS),
     [fullHistory, endAt],
@@ -43,6 +60,17 @@ export function Scope({ history: fullHistory, alerts, cores, net, endAt = null }
   const reduced = useReducedMotion();
   const traces = useMemo(() => buildTraces(history, cores), [history, cores]);
   const summary = describeScope(traces, history.length);
+  const noop = useMemo(() => () => undefined, []);
+  const scrub = useScrub({
+    frames,
+    at: endAt,
+    // One frame width is the five-minute window, so a pixel is that many milliseconds.
+    msPerPx: (el) => SCOPE_WINDOW_MS / Math.max(1, el.clientWidth),
+    onScrub: onScrub ?? noop,
+    onLive: onLive ?? noop,
+    reduced: reduced ?? false,
+  });
+  const scrubbable = frames.length > 1 && onScrub !== undefined && onLive !== undefined;
 
   // A new alert pid triggers one sync-loss sweep. The class is toggled on the
   // DOM directly (no state, no re-render) and removed when the sweep ends.
@@ -162,7 +190,16 @@ export function Scope({ history: fullHistory, alerts, cores, net, endAt = null }
           </span>
         </span>
       </h2>
-      <div ref={frameRef} className="scope-frame mt-2">
+      <div
+        ref={frameRef}
+        className={`scope-frame mt-2 ${scrubbable ? (scrub.dragging ? "cursor-grabbing" : "cursor-grab") : ""}`}
+        style={{ touchAction: scrubbable ? "pan-y" : undefined }}
+        onPointerDown={scrubbable ? scrub.onPointerDown : undefined}
+        onPointerMove={scrubbable ? scrub.onPointerMove : undefined}
+        onPointerUp={scrubbable ? scrub.onPointerUp : undefined}
+        onPointerCancel={scrubbable ? scrub.onPointerCancel : undefined}
+        title={scrubbable ? "Drag to rewind the tape; flick and it coasts to a frame" : undefined}
+      >
         <canvas
           ref={canvasRef}
           role="img"

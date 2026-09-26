@@ -374,6 +374,9 @@ export default function Dashboard() {
             cores={data.cpu.cores}
             net={data.net}
             endAt={onTape ? tapeAt : null}
+            frames={tape.data?.frames ?? []}
+            onScrub={setTapeAt}
+            onLive={() => setTapeAt(null)}
           />
           <TapeScrubber
             frames={tape.data?.frames ?? []}

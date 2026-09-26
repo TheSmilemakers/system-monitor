@@ -1,12 +1,16 @@
 "use client";
 
+import { useReducedMotion } from "motion/react";
+
 import { Button } from "@/components/ui/button";
+import { useScrub } from "@/hooks/use-scrub";
 
 /**
  * The tape scrubber: a cassette-counter style control that rewinds the scope
  * and the table through the last hour. The range input tracks the pointer
  * 1:1 and every change updates both views; "Live" returns to now. The
- * counter reads the time being shown.
+ * counter reads the time being shown and doubles as a jog wheel: drag it
+ * sideways, two seconds a pixel, and flick it to coast.
  */
 export function TapeScrubber({
   frames,
@@ -21,6 +25,15 @@ export function TapeScrubber({
   onScrub: (ts: number) => void;
   onLive: () => void;
 }) {
+  const reduced = useReducedMotion();
+  const scrub = useScrub({
+    frames,
+    at,
+    msPerPx: 2_000,
+    onScrub,
+    onLive,
+    reduced: reduced ?? false,
+  });
   const count = frames.length;
   const index =
     at === null
@@ -40,9 +53,14 @@ export function TapeScrubber({
     >
       <span className="engraved">Tape</span>
       <span
-        className="segment min-w-[9ch] text-base"
+        className={`segment min-w-[9ch] select-none text-base ${count > 1 ? (scrub.dragging ? "cursor-grabbing" : "cursor-grab") : ""}`}
         aria-live="polite"
-        style={{ color: at === null ? "var(--phosphor)" : "var(--amber)" }}
+        style={{ color: at === null ? "var(--phosphor)" : "var(--amber)", touchAction: "pan-y" }}
+        title={count > 1 ? "Drag sideways to jog the tape" : undefined}
+        onPointerDown={scrub.onPointerDown}
+        onPointerMove={scrub.onPointerMove}
+        onPointerUp={scrub.onPointerUp}
+        onPointerCancel={scrub.onPointerCancel}
       >
         {shown === null
           ? "--:--:--"
