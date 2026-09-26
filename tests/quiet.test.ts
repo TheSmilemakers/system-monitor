@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { setNotifications } from "@/app/actions";
+import { GET as getSettings, POST as postSettings } from "@/app/api/settings/route";
 import {
   __resetMonitor,
   __setNotifier,
@@ -223,5 +224,44 @@ describe("settings and the action", () => {
     expect((await loadSettings()).notifications).toBe(false);
     expect(await setNotifications(true)).toEqual({ success: true });
     expect((await loadSettings()).notifications).toBe(true);
+  });
+
+  test("the settings route serves and changes the switch behind the loopback guard", async () => {
+    installHeaders({ host: "evil.example.com" });
+    expect((await getSettings()).status).toBe(403);
+    installLoopbackHeaders();
+    expect(await (await getSettings()).json()).toEqual({ notifications: true });
+    const bad = await postSettings(
+      new Request("http://localhost/api/settings", { method: "POST", body: "{}" }),
+    );
+    expect(bad.status).toBe(400);
+    const off = await postSettings(
+      new Request("http://localhost/api/settings", {
+        method: "POST",
+        body: JSON.stringify({ notifications: false }),
+      }),
+    );
+    expect(await off.json()).toEqual({ notifications: false });
+    expect((await loadSettings()).notifications).toBe(false);
+  });
+
+  test("with SM_NOTIFIER=app the server leaves notifications to the shell", async () => {
+    const notifications: string[] = [];
+    __setNotifier(async (_t, m) => {
+      notifications.push(m);
+    });
+    process.env.SM_NOTIFIER = "app";
+    try {
+      await tick({ processes: [] }, T0, true);
+      const events = await tick(
+        { processes: [proc({ path: "/Users/rajan/Downloads/dropper", trust: "unsigned" })] },
+        T0 + TICK_INTERVAL_MS,
+        true,
+      );
+      expect(events.some((e) => e.severity === "alarm")).toBe(true);
+      expect(notifications).toEqual([]);
+    } finally {
+      delete process.env.SM_NOTIFIER;
+    }
   });
 });

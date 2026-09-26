@@ -98,6 +98,22 @@ and signature. The identity card also says how the process was launched: by
 which launch agent or daemon, by launchd on demand, or by its parent. Nothing
 leaves the machine.
 
+## The native shell
+
+`scripts/build-shell.sh` compiles `desktop/shell/main.m` (Objective-C, so the
+Command Line Tools' clang suffices even when their Swift toolchain is out of
+step with the SDK) into
+`~/Desktop/SystemMonitor.app`: a window of its own around the bench, with the
+app in the dock, notifications posted as System Monitor rather than through
+Script Editor, an alarm count on the dock badge, and a server that starts with
+the app (production build, built on first run) and stops when you quit. Its
+Monitor menu mutes notifications and rebuilds the server; View opens the
+report or the bench in a browser. It needs only the Command Line Tools. The
+project it runs is `SM_PROJECT_DIR`, else the path in
+`~/Library/Application Support/system-monitor/project`, else
+`~/projects/system-monitor`. The server it starts sees `SM_NOTIFIER=app` and
+leaves notifications to the shell.
+
 ## Features
 
 ### Real-time dashboard

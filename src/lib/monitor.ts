@@ -952,7 +952,12 @@ export async function tick(
     await record(events);
     // One notification per tick, never one per event, and none when muted.
     const urgent = events.filter((e) => e.severity === "alarm" || e.category === "watch");
-    if (urgent.length > 0 && (await loadSettings()).notifications) {
+    // The native shell posts notifications as itself and sets SM_NOTIFIER=app.
+    if (
+      urgent.length > 0 &&
+      process.env.SM_NOTIFIER !== "app" &&
+      (await loadSettings()).notifications
+    ) {
       const first = urgent[0];
       const message =
         urgent.length === 1 || !first
