@@ -370,10 +370,19 @@ const PHASES = {
         check: () => {
           const t = read("src/app/actions.ts") ?? "";
           const actions = [...t.matchAll(/export async function (\w+)/g)].map((m) => m[1]);
+          // A non-exported helper that performs the check counts, so shared
+          // preconditions (ownership, identity) can live in one place.
+          const helpers = [...t.matchAll(/^async function (\w+)\(/gm)]
+            .map((m) => m[1])
+            .filter((name) => {
+              const start = t.indexOf(`async function ${name}(`);
+              const body = t.slice(start, t.indexOf("\n}\n", start));
+              return /assertLocalRequest\(/.test(body);
+            });
+          const guarded = (b) =>
+            /assertLocalRequest\(/.test(b) || helpers.some((h) => new RegExp(`\\b${h}\\(`).test(b));
           const bodies = t.split(/export async function /).slice(1);
-          const missing = bodies
-            .filter((b) => !/assertLocalRequest\(/.test(b))
-            .map((b) => b.split("(")[0]);
+          const missing = bodies.filter((b) => !guarded(b)).map((b) => b.split("(")[0]);
           return {
             pass: missing.length === 0 && actions.length > 0,
             detail: missing.join(", ") || `${actions.length} actions guarded`,

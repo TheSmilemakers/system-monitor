@@ -4,7 +4,18 @@ import { mkdir, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/pr
 import os from "node:os";
 import path from "node:path";
 
-import { cleanupItem, killProcess, stopServer } from "@/app/actions";
+import {
+  assessProcess,
+  cleanupItem,
+  killProcess,
+  reniceProcess,
+  resumeProcess,
+  revealProcess,
+  sampleProcess,
+  stopServer,
+  suspendProcess,
+} from "@/app/actions";
+import { probe } from "@/lib/probe";
 import {
   CLEANUP_TARGETS,
   __setExtraCleanupTargets,
@@ -248,5 +259,127 @@ describe("cleanupItem", () => {
     const r = await cleanupItem(absent);
     expect(r.success).toBe(false);
     expect(r.error).toBe("Target no longer exists");
+  });
+});
+
+describe("suspend, resume, renice, sample on an owned process", () => {
+  const state = async (pid: number) => {
+    const r = await probe("ps", ["-o", "stat=,nice=", "-p", String(pid)]);
+    return r.status === "ok" ? r.value.trim().split(/\s+/) : [];
+  };
+
+  test("suspend stops the process and resume continues it, verified through ps", async () => {
+    const child = spawn("sleep", ["30"]);
+    await sleep(150);
+    const pid = child.pid!;
+    expect(await suspendProcess(pid)).toEqual({ success: true });
+    expect((await state(pid))[0]).toMatch(/^T/);
+    expect(await resumeProcess(pid)).toEqual({ success: true });
+    expect((await state(pid))[0]).not.toMatch(/^T/);
+    child.kill("SIGKILL");
+  });
+
+  test("renice lowers the priority", async () => {
+    const child = spawn("sleep", ["30"]);
+    await sleep(150);
+    const pid = child.pid!;
+    expect(await reniceProcess(pid)).toEqual({ success: true });
+    expect(Number((await state(pid))[1])).toBe(10);
+    child.kill("SIGKILL");
+  });
+
+  test("every process action refuses a protected pid and a foreign owner", async () => {
+    const actions: Array<(pid: number) => Promise<{ success: boolean; error?: string }>> = [
+      suspendProcess,
+      resumeProcess,
+      reniceProcess,
+      sampleProcess,
+      assessProcess,
+      revealProcess,
+    ];
+    for (const fn of actions) {
+      expect((await fn(1)).success).toBe(false);
+    }
+    installFakeProbe({
+      ps: (args) => ({
+        status: "ok",
+        value: args[0] === "-o" ? "root Mon Sep 22 07:00:00 2026" : "",
+      }),
+      whoami: () => ({ status: "ok", value: "rajan" }),
+    });
+    expect((await suspendProcess(4242)).error).toContain('owned by "root"');
+    expect((await assessProcess(4242)).error).toContain('owned by "root"');
+  });
+
+  test("sample returns the head of the report as text", async () => {
+    const child = spawn("sleep", ["30"]);
+    await sleep(150);
+    const pid = child.pid!;
+    const r = await sampleProcess(pid);
+    child.kill("SIGKILL");
+    // sample may be refused for hardened processes; sleep is not one, but be tolerant of the host.
+    if (r.success) {
+      expect(r.text).toContain("Call graph:");
+      expect(r.text!.split("\n").length).toBeLessThanOrEqual(80);
+    } else {
+      expect(r.error).toContain("sample reported");
+    }
+  }, 30_000);
+});
+
+describe("assess and reveal", () => {
+  beforeEach(() => {
+    installLoopbackHeaders();
+    installFakeProbe();
+  });
+
+  test("assess reports Gatekeeper's verdict, the notarisation source and the quarantine flag", async () => {
+    const r = await assessProcess(4242);
+    expect(r).toMatchObject({
+      success: true,
+      path: "/Applications/Slack.app/Contents/MacOS/Slack",
+      verdict: "accepted",
+      notarised: true,
+      quarantined: false,
+    });
+    expect(r.source).toContain("Notarized Developer ID");
+  });
+
+  test("a rejected, quarantined binary is reported as such", async () => {
+    installFakeProbe({
+      spctl: (args) => ({
+        status: "failed",
+        error: `${args[args.length - 1]}: rejected\nsource=no usable signature`,
+      }),
+      xattr: () => ({ status: "ok", value: "0083;66f0a1b2;Safari;" }),
+    });
+    const r = await assessProcess(4242);
+    expect(r).toMatchObject({
+      success: true,
+      verdict: "rejected",
+      notarised: false,
+      quarantined: true,
+    });
+  });
+
+  test("reveal asks Finder to show the executable; a missing path is an error", async () => {
+    const captured: { args: readonly string[] | null } = { args: null };
+    installFakeProbe({
+      open: (args) => {
+        captured.args = args;
+        return { status: "ok", value: "" };
+      },
+    });
+    expect(await revealProcess(4242)).toEqual({ success: true });
+    expect(captured.args).toEqual(["-R", "/Applications/Slack.app/Contents/MacOS/Slack"]);
+
+    installFakeProbe({
+      ps: (args) =>
+        args[1] === "comm="
+          ? { status: "ok", value: "titled" }
+          : { status: "ok", value: "rajan Mon Sep 22 07:00:00 2026" },
+      lsof: () => ({ status: "denied" }),
+    });
+    expect((await revealProcess(4242)).error).toContain("executable path");
   });
 });

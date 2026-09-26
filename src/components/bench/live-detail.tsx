@@ -1,23 +1,26 @@
 "use client";
 
 import { Sparkline } from "@/components/dashboard/sparkline";
-import { usePolling } from "@/hooks/use-polling";
 import { formatBytes, formatDuration } from "@/lib/format";
-import { parseProcessDetail, type ProcessAlert, type ProcessInfo } from "@/lib/schemas";
+import type { ProcessAlert, ProcessDetail, ProcessInfo } from "@/lib/schemas";
 
 /**
- * "Right now": live detail for the inspected process, polled every five
- * seconds while the inspector is open. CPU trace, state and priority,
- * threads and energy, open files, and network connections with resolved
- * hosts. A check that could not run is named, not shown as zero.
+ * "Right now": live detail for the inspected process. CPU trace, state and
+ * priority, threads and energy, open files, and network connections with
+ * resolved hosts. A check that could not run is named, not shown as zero.
  */
-export function LiveDetail({ proc, alert }: { proc: ProcessInfo; alert: ProcessAlert | null }) {
-  const detail = usePolling({
-    url: `/api/process?pid=${proc.pid}`,
-    intervalMs: 5_000,
-    parse: parseProcessDetail,
-  });
-  const d = detail.data;
+export function LiveDetail({
+  proc,
+  alert,
+  detail,
+  error,
+}: {
+  proc: ProcessInfo;
+  alert: ProcessAlert | null;
+  detail: ProcessDetail | null;
+  error: string | null;
+}) {
+  const d = detail;
   const cpuTone = proc.cpu > 50 ? "text-alarm" : proc.cpu > 20 ? "text-amber" : "";
 
   return (
@@ -96,9 +99,9 @@ export function LiveDetail({ proc, alert }: { proc: ProcessInfo; alert: ProcessA
           Could not check: {d.unavailable.map((u) => `${u.check} (${u.reason})`).join(", ")}
         </p>
       )}
-      {detail.error && !d && (
+      {error && !d && (
         <p role="alert" className="mt-1 font-mono text-[11px] text-amber">
-          Live detail unavailable: {detail.error}
+          Live detail unavailable: {error}
         </p>
       )}
     </section>

@@ -1,9 +1,19 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  assessProcess,
+  reniceProcess,
+  resumeProcess,
+  revealProcess,
+  sampleProcess,
+  suspendProcess,
+  type AssessOutcome,
+} from "@/app/actions";
 import { Button } from "@/components/ui/button";
+import { usePolling } from "@/hooks/use-polling";
 import {
   appOf,
   childrenOf,
@@ -12,7 +22,7 @@ import {
   locationClass,
   parentChain,
 } from "@/lib/process-model";
-import type { ProcessAlert, ProcessInfo } from "@/lib/schemas";
+import { parseProcessDetail, type ProcessAlert, type ProcessInfo } from "@/lib/schemas";
 
 import { Explainer } from "./explainer";
 import { LiveDetail } from "./live-detail";
@@ -26,13 +36,19 @@ export interface InspectorProps {
   onClose: () => void;
   onInspect: (pid: number) => void;
   onKill: (pid: number, name: string) => void;
+  onNotice: (kind: "ok" | "error", message: string) => void;
 }
+
+type ActionKey = "suspend" | "resume" | "renice" | "sample" | "assess" | "reveal";
 
 /**
  * The inspector: a parallel panel (no scrim, the table keeps updating
  * beneath) that answers who is this, what does it do, what is it doing now,
  * and what can I do. Enters from the right and leaves to the right on a
  * critically damped spring; a cross-fade under reduced motion. Escape closes.
+ *
+ * Non-destructive actions (suspend, resume, lower priority, sample, assess,
+ * reveal) act immediately and announce their outcome; terminate confirms.
  */
 export function Inspector({
   proc,
@@ -42,9 +58,21 @@ export function Inspector({
   onClose,
   onInspect,
   onKill,
+  onNotice,
 }: InspectorProps) {
   const reduced = useReducedMotion();
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [busy, setBusy] = useState<ActionKey | null>(null);
+  const [sampleText, setSampleText] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<AssessOutcome | null>(null);
+
+  const pid = proc?.pid ?? 0;
+  const detail = usePolling({
+    url: `/api/process?pid=${pid}`,
+    intervalMs: 5_000,
+    parse: parseProcessDetail,
+    enabled: pid > 0,
+  });
 
   useEffect(() => {
     if (!proc) return;
@@ -61,6 +89,27 @@ export function Inspector({
   const children = useMemo(() => (proc ? childrenOf(proc.pid, all) : []), [proc, all]);
   const alert = proc ? alerts.find((a) => a.pid === proc.pid) : undefined;
 
+  const run = useCallback(
+    async (
+      key: ActionKey,
+      fn: () => Promise<{ success: boolean; error?: string }>,
+      done: string,
+    ) => {
+      if (!proc) return;
+      setBusy(key);
+      try {
+        const r = await fn();
+        onNotice(r.success ? "ok" : "error", r.success ? done : (r.error ?? "The action failed."));
+        if (r.success) detail.refresh();
+      } catch {
+        onNotice("error", "The request failed.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [proc, onNotice, detail],
+  );
+
   const motionProps = reduced
     ? {
         initial: { opacity: 0 },
@@ -74,6 +123,9 @@ export function Inspector({
         exit: { x: "100%" },
         transition: { type: "spring" as const, bounce: 0, duration: 0.3 },
       };
+
+  const suspended = detail.data?.suspended ?? false;
+  const name = proc?.command ?? "";
 
   return (
     <AnimatePresence>
@@ -146,6 +198,31 @@ export function Inspector({
                     </span>
                   )}
                 </dd>
+                {assessment && assessment.success && (
+                  <>
+                    <dt className="text-muted-foreground">gatekeeper</dt>
+                    <dd>
+                      <span
+                        className="lamp"
+                        data-state={
+                          assessment.verdict === "accepted"
+                            ? "ok"
+                            : assessment.verdict === "rejected"
+                              ? "alarm"
+                              : "off"
+                        }
+                      >
+                        <span>{assessment.verdict}</span>
+                      </span>
+                      {assessment.source && <span className="ml-2">{assessment.source}</span>}
+                      {assessment.quarantined && (
+                        <span className="lamp ml-2" data-state="caution">
+                          <span>quarantine flag set</span>
+                        </span>
+                      )}
+                    </dd>
+                  </>
+                )}
               </dl>
             </section>
 
@@ -153,7 +230,13 @@ export function Inspector({
             <Explainer proc={proc} />
 
             {/* Live behaviour */}
-            <LiveDetail proc={proc} alert={alert ?? null} />
+            <LiveDetail
+              proc={proc}
+              alert={alert ?? null}
+              detail={detail.data}
+              error={detail.error}
+            />
+
             <section aria-labelledby="insp-tree" className="mt-3">
               <h3 id="insp-tree" className="engraved">
                 Process tree
@@ -197,15 +280,116 @@ export function Inspector({
                 </dd>
               </dl>
             </section>
+
+            {sampleText && (
+              <section aria-labelledby="insp-sample" className="mt-3">
+                <h3 id="insp-sample" className="engraved flex items-center justify-between">
+                  <span>Sample</span>
+                  <button
+                    type="button"
+                    className="normal-case tracking-normal hover:underline"
+                    onClick={() => setSampleText(null)}
+                  >
+                    clear
+                  </button>
+                </h3>
+                <pre className="mt-1 max-h-64 overflow-auto rounded border border-border bg-tube p-2 font-mono text-[10px] leading-snug">
+                  {sampleText}
+                </pre>
+              </section>
+            )}
           </div>
 
-          <footer className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
+          <footer className="flex flex-wrap items-center gap-1.5 border-t border-border px-4 py-3">
+            {suspended ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 font-mono text-xs"
+                disabled={busy !== null}
+                onClick={() => run("resume", () => resumeProcess(proc.pid), `Resumed ${name}.`)}
+              >
+                {busy === "resume" ? "Resuming…" : "Resume"}
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 font-mono text-xs"
+                disabled={busy !== null}
+                title="Pause the process with SIGSTOP; it keeps its state and can be resumed"
+                onClick={() => run("suspend", () => suspendProcess(proc.pid), `Suspended ${name}.`)}
+              >
+                {busy === "suspend" ? "Suspending…" : "Suspend"}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 font-mono text-xs"
+              disabled={busy !== null}
+              onClick={() =>
+                run("renice", () => reniceProcess(proc.pid), `Lowered the priority of ${name}.`)
+              }
+            >
+              {busy === "renice" ? "Lowering…" : "Lower priority"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 font-mono text-xs"
+              disabled={busy !== null}
+              onClick={() =>
+                run(
+                  "sample",
+                  async () => {
+                    const r = await sampleProcess(proc.pid);
+                    if (r.success && r.text) setSampleText(r.text);
+                    return r;
+                  },
+                  `Sampled ${name} for two seconds.`,
+                )
+              }
+            >
+              {busy === "sample" ? "Sampling…" : "Sample 2 s"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 font-mono text-xs"
+              disabled={busy !== null}
+              onClick={() =>
+                run(
+                  "assess",
+                  async () => {
+                    const r = await assessProcess(proc.pid);
+                    if (r.success) setAssessment(r);
+                    return r;
+                  },
+                  `Assessed ${name}.`,
+                )
+              }
+            >
+              {busy === "assess" ? "Assessing…" : "Assess"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 font-mono text-xs"
+              disabled={busy !== null}
+              onClick={() =>
+                run("reveal", () => revealProcess(proc.pid), `Revealed ${name} in Finder.`)
+              }
+            >
+              {busy === "reveal" ? "Revealing…" : "Reveal"}
+            </Button>
             <Button
               variant="outline"
               size="sm"
               className="h-7 px-2 font-mono text-xs"
               onClick={() => {
                 void navigator.clipboard?.writeText(proc.path || proc.command);
+                onNotice("ok", "Copied the path.");
               }}
             >
               Copy path

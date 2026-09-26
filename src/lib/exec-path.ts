@@ -80,6 +80,18 @@ function apply(row: ProcessInfo, path: string): void {
   row.bundleId = id.bundleId;
 }
 
+/**
+ * The executable path of one process, for actions that need it (assess,
+ * reveal): ps's `comm` when it is a path, else the first text file lsof maps.
+ */
+export async function executablePathFor(pid: number): Promise<string | null> {
+  const comm = await probe("ps", ["-o", "comm=", "-p", String(pid)]);
+  const title = comm.status === "ok" ? comm.value.trim() : "";
+  if (title.startsWith("/")) return title;
+  const res = await probe("lsof", ["-a", "-d", "txt", "-Fpn", "-p", String(pid)], 5_000);
+  return hasValue(res) ? (parseLsofText(res.value).get(pid) ?? null) : null;
+}
+
 /** Test seam. */
 export function __resetExecPathCache(): void {
   cache.clear();

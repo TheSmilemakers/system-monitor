@@ -250,6 +250,9 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         // `ps -o user=,lstart= -p <pid>` is process identity; `-axwwo` is the
         // sampler's detailed list; `ps aux` is what the scans read.
         if (args[0] === "-o" && args[1] === "stat=,nice=,ppid=") return ok("S     0     1");
+        if (args[0] === "-o" && args[1] === "comm=")
+          return ok("/Applications/Slack.app/Contents/MacOS/Slack");
+        if (args[0] === "-o" && args[1] === "stat=") return ok("S");
         if (args[0] === "-o") return ok("rajan Mon Sep 22 07:00:00 2026");
         if (args[0] === "-axwwo") return ok(PS_DETAILED_OUTPUT);
         return ok(PS_OUTPUT);
@@ -278,6 +281,28 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         return ok(`40960\t${args[1] ?? ""}`);
       case "find":
         return ok("a\nb\nc");
+      case "spctl":
+        if (args[0] === "--assess") {
+          return ok(
+            `${args[args.length - 1]}: accepted\nsource=Notarized Developer ID\norigin=Developer ID Application: Slack Technologies, LLC (BQR82RBBHL)`,
+          );
+        }
+        return ok(GATEKEEPER_ON);
+      case "xattr":
+        return { status: "failed", error: "No such xattr: com.apple.quarantine" };
+      case "open":
+        return ok("");
+      case "renice":
+        return ok("");
+      case "sample":
+        return ok(
+          [
+            "Sampling process 648 for 2 seconds with 1 millisecond of run time between samples",
+            "Call graph:",
+            "    2001 Thread_1  DispatchQueue_1: com.apple.main-thread  (serial)",
+            "    + 2001 start  (in dyld) + 1234  [0x1000]",
+          ].join("\n"),
+        );
       case "man":
         // `man -w name` says whether a page exists; `man -P cat name` prints it.
         if (args[0] === "-w") {
@@ -290,8 +315,6 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         return ok(FIREWALL_OFF);
       case "csrutil":
         return ok(SIP_ON);
-      case "spctl":
-        return ok(GATEKEEPER_ON);
       case "fdesetup":
         return ok(FILEVAULT_ON);
       case "plutil":

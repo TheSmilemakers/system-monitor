@@ -372,6 +372,7 @@ export default function Dashboard() {
         onClose={() => setInspectPid(null)}
         onInspect={inspect}
         onKill={handleKill}
+        onNotice={announce}
       />
 
       <CommandPalette
