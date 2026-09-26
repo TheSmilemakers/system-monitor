@@ -9,7 +9,9 @@ import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
 import { resetBaseline } from "@/lib/monitor";
 import { hasValue, probe } from "@/lib/probe";
 import { processIdentity, sameIdentity, type ProcessIdentity } from "@/lib/process-identity";
+import { watchKey } from "@/lib/process-model";
 import { lastProcesses } from "@/lib/sampler";
+import { addWatch, isWatched, removeWatch, WATCH_LIMIT } from "@/lib/watch";
 
 export interface ActionResult {
   success: boolean;
@@ -360,4 +362,46 @@ export async function resetMonitorBaseline(): Promise<ActionResult> {
       error: e instanceof Error ? e.message : "Could not reset the baseline",
     };
   }
+}
+
+export interface WatchOutcome extends ActionResult {
+  watching?: boolean;
+}
+
+/**
+ * Pin or unpin a process on the watch list. Watching is read-only, so any
+ * process may be watched, not only the user's own; the key is the
+ * executable path, which must already be resolved.
+ */
+export async function toggleWatch(pid: number): Promise<WatchOutcome> {
+  try {
+    await assertLocalRequest();
+  } catch (e) {
+    return forbidden(e) ?? { success: false, error: "Request refused" };
+  }
+  const proc = lastProcesses().find((p) => p.pid === pid);
+  if (!proc) return { success: false, error: "That process is not in the current sample" };
+  const key = watchKey(proc);
+  if (key === null) {
+    return { success: false, error: "The executable path is not known yet; try again shortly" };
+  }
+  if (await isWatched(key)) {
+    await removeWatch(key);
+    return { success: true, watching: false };
+  }
+  const r = await addWatch(key, proc.command);
+  return r.added
+    ? { success: true, watching: true }
+    : { success: false, error: `The watch list is full (${WATCH_LIMIT} entries)` };
+}
+
+/** Remove a watch by key, for processes that are no longer running. */
+export async function unwatch(key: string): Promise<ActionResult> {
+  try {
+    await assertLocalRequest();
+  } catch (e) {
+    return forbidden(e) ?? { success: false, error: "Request refused" };
+  }
+  const r = await removeWatch(key);
+  return r.removed ? { success: true } : { success: false, error: "That process is not watched" };
 }

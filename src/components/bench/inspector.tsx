@@ -10,6 +10,7 @@ import {
   revealProcess,
   sampleProcess,
   suspendProcess,
+  toggleWatch,
   type AssessOutcome,
 } from "@/app/actions";
 import { Button } from "@/components/ui/button";
@@ -21,8 +22,14 @@ import {
   indexByPid,
   locationClass,
   parentChain,
+  watchKey,
 } from "@/lib/process-model";
-import { parseProcessDetail, type ProcessAlert, type ProcessInfo } from "@/lib/schemas";
+import {
+  parseProcessDetail,
+  type ProcessAlert,
+  type ProcessInfo,
+  type WatchEntry,
+} from "@/lib/schemas";
 
 import { Explainer } from "./explainer";
 import { LiveDetail } from "./live-detail";
@@ -33,13 +40,16 @@ export interface InspectorProps {
   all: ProcessInfo[];
   alerts: ProcessAlert[];
   killingPid: number | null;
+  watches: WatchEntry[];
   onClose: () => void;
   onInspect: (pid: number) => void;
   onKill: (pid: number, name: string) => void;
   onNotice: (kind: "ok" | "error", message: string) => void;
+  /** The watch list changed on the server; the owner refetches whatever carries it. */
+  onWatchToggled: () => void;
 }
 
-type ActionKey = "suspend" | "resume" | "renice" | "sample" | "assess" | "reveal";
+type ActionKey = "suspend" | "resume" | "renice" | "sample" | "assess" | "reveal" | "watch";
 
 /**
  * The inspector: a parallel panel (no scrim, the table keeps updating
@@ -48,17 +58,20 @@ type ActionKey = "suspend" | "resume" | "renice" | "sample" | "assess" | "reveal
  * critically damped spring; a cross-fade under reduced motion. Escape closes.
  *
  * Non-destructive actions (suspend, resume, lower priority, sample, assess,
- * reveal) act immediately and announce their outcome; terminate confirms.
+ * reveal, watch) act immediately and announce their outcome; terminate
+ * confirms.
  */
 export function Inspector({
   proc,
   all,
   alerts,
   killingPid,
+  watches,
   onClose,
   onInspect,
   onKill,
   onNotice,
+  onWatchToggled,
 }: InspectorProps) {
   const reduced = useReducedMotion();
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -126,6 +139,8 @@ export function Inspector({
 
   const suspended = detail.data?.suspended ?? false;
   const name = proc?.command ?? "";
+  const key = proc ? watchKey(proc) : null;
+  const watching = key !== null && watches.some((w) => w.key === key);
 
   return (
     <AnimatePresence>
@@ -382,6 +397,33 @@ export function Inspector({
               }
             >
               {busy === "reveal" ? "Revealing…" : "Reveal"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 font-mono text-xs"
+              disabled={busy !== null || key === null}
+              aria-pressed={watching}
+              title={
+                key === null
+                  ? "Watching needs the executable path, which is still being resolved"
+                  : watching
+                    ? "Stop reporting when this process starts or stops"
+                    : "Report in the timeline, and notify, when this process starts or stops"
+              }
+              onClick={() =>
+                run(
+                  "watch",
+                  async () => {
+                    const r = await toggleWatch(proc.pid);
+                    if (r.success) onWatchToggled();
+                    return r;
+                  },
+                  watching ? `Stopped watching ${name}.` : `Watching ${name}.`,
+                )
+              }
+            >
+              {busy === "watch" ? "…" : watching ? "Unwatch" : "Watch"}
             </Button>
             <Button
               variant="outline"

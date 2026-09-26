@@ -1,5 +1,6 @@
 "use client";
 
+import { unwatch } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { usePolling } from "@/hooks/use-polling";
 import { parseTimeline, type TimelineEvent } from "@/lib/schemas";
@@ -10,6 +11,7 @@ const CATEGORY_HUE: Record<string, string> = {
   port: "var(--cathode)",
   persistence: "var(--amber)",
   posture: "var(--amber)",
+  watch: "var(--phosphor)",
   monitor: "var(--muted-foreground)",
 };
 
@@ -29,7 +31,8 @@ function when(ts: number, now: number): string {
 /**
  * The timeline: a chart-recorder strip of what changed on the machine, newest
  * at the top, one pen colour per category, the severity spoken as text and
- * the rule that fired shown so it can be judged. Polls every fifteen
+ * the rule that fired shown so it can be judged. Watched processes sit in
+ * a strip under the header, each with its own unpin. Polls every fifteen
  * seconds while the tab is showing.
  */
 export function TimelineView({
@@ -79,6 +82,33 @@ export function TimelineView({
           </Button>
         </div>
       </div>
+      {data && data.watches.length > 0 && (
+        <ul
+          aria-label="Watched processes"
+          className="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-1.5 font-mono text-[11px]"
+        >
+          <li className="text-muted-foreground">watching</li>
+          {data.watches.map((w) => (
+            <li
+              key={w.key}
+              className="flex items-center gap-1 rounded border border-border bg-bezel px-1.5 py-0.5"
+            >
+              <span title={w.key}>{w.name}</span>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground"
+                aria-label={`Stop watching ${w.name}`}
+                onClick={async () => {
+                  await unwatch(w.key);
+                  state.refresh();
+                }}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <ol
         className="min-h-0 flex-1 overflow-auto font-mono text-xs"
         aria-label="Events, newest first"

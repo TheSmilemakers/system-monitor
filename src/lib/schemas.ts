@@ -57,6 +57,13 @@ export interface ProcessAlert {
   duration: number;
 }
 
+/** A pinned process: the monitor reports when it starts or stops. */
+export interface WatchEntry {
+  key: string;
+  name: string;
+  addedAt: number;
+}
+
 export interface SystemStats {
   complete: boolean;
   unavailable: Unavailable[];
@@ -79,6 +86,7 @@ export interface SystemStats {
   battery: { percent: number; charging: boolean } | null;
   history: HistoryPoint[];
   alerts: ProcessAlert[];
+  watches: WatchEntry[];
   timestamp: number;
 }
 
@@ -227,6 +235,7 @@ export interface TimelineEvent {
 export interface TimelineResult {
   events: TimelineEvent[];
   baselineAt: number | null;
+  watches: WatchEntry[];
   timestamp: number;
 }
 
@@ -423,6 +432,7 @@ export function parseStats(raw: unknown): SystemStats {
     },
     uptime: str(raw.uptime) ? raw.uptime : "",
     currentUser: str(raw.currentUser) ? raw.currentUser : "",
+    watches: watchList(raw.watches),
     battery:
       isObj(raw.battery) && num(raw.battery.percent)
         ? {
@@ -615,6 +625,18 @@ export function parseProcessDetail(raw: unknown): ProcessDetail {
   };
 }
 
+function watchList(v: unknown): WatchEntry[] {
+  if (!arr(v)) return [];
+  return v
+    .filter(isObj)
+    .filter((w) => str(w.key) && str(w.name))
+    .map((w) => ({
+      key: w.key as string,
+      name: w.name as string,
+      addedAt: num(w.addedAt) ? w.addedAt : 0,
+    }));
+}
+
 export function parseTimeline(raw: unknown): TimelineResult {
   if (!isObj(raw) || !arr(raw.events)) throw new ContractError("timeline.events must be an array");
   const events: TimelineEvent[] = raw.events.filter(isObj).map((e) => ({
@@ -629,6 +651,7 @@ export function parseTimeline(raw: unknown): TimelineResult {
   return {
     events,
     baselineAt: num(raw.baselineAt) ? raw.baselineAt : null,
+    watches: watchList(raw.watches),
     timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
   };
 }

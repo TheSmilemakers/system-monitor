@@ -14,7 +14,7 @@ import {
   type SortDir,
   type SortKey,
 } from "@/lib/process-model";
-import type { ProcessAlert, ProcessInfo } from "@/lib/schemas";
+import type { ProcessAlert, ProcessInfo, WatchEntry } from "@/lib/schemas";
 
 export interface ProcessTableProps {
   processes: ProcessInfo[];
@@ -22,6 +22,8 @@ export interface ProcessTableProps {
   currentUser: string | null;
   killingPid: number | null;
   selectedPid: number | null;
+  /** Pinned processes; their rows carry a watch lamp. */
+  watches?: WatchEntry[];
   onSelect: (pid: number | null) => void;
   onInspect: (pid: number) => void;
   onKill: (pid: number, name: string) => void;
@@ -69,10 +71,12 @@ export function ProcessTable({
   currentUser,
   killingPid,
   selectedPid,
+  watches,
   onSelect,
   onInspect,
   onKill,
 }: ProcessTableProps) {
+  const watchedPaths = useMemo(() => new Set((watches ?? []).map((w) => w.key)), [watches]);
   const [sortKey, setSortKey] = useState<SortKey>("cpu");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -273,6 +277,12 @@ export function ProcessTable({
                     >
                       {proc.command}
                     </button>
+                    {watchedPaths.has(proc.path) && (
+                      <span className="ml-2 lamp" data-state="info" title="Watched">
+                        <span aria-hidden="true">watch</span>
+                        <span className="sr-only">watched</span>
+                      </span>
+                    )}
                     {isAlerted && (
                       <span className="ml-2 lamp" data-state="alarm">
                         <span aria-hidden="true">hot</span>

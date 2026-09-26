@@ -13,6 +13,7 @@ import { locationClass } from "./process-model";
 import { remoteAddressOf, resolveAll } from "./resolve-host";
 import type { ProcessInfo } from "./sampler";
 import { appendJsonl, compactJsonl, readJson, readJsonl, writeJson } from "./store";
+import { loadWatches, type Watch } from "./watch";
 
 /**
  * The constant monitor: a baseline of what the machine normally looks like,
@@ -24,7 +25,9 @@ import { appendJsonl, compactJsonl, readJson, readJsonl, writeJson } from "./sto
  * with a severity from the rule table below. An event fires when a subject
  * first appears relative to the previous tick and is not in the baseline;
  * the same rule and subject is not repeated within ten minutes. Alarms are
- * also posted as macOS notifications. Everything stays on this machine.
+ * also posted as macOS notifications, as are watch events: the user pins
+ * a process and hears when it starts or stops. Everything stays on this
+ * machine.
  */
 
 export type EventSeverity = "info" | "caution" | "alarm";
@@ -37,6 +40,7 @@ export type EventCategory =
   | "account"
   | "credential"
   | "extension"
+  | "watch"
   | "monitor";
 
 export interface MonitorEvent {
@@ -477,6 +481,36 @@ export function diffSnapshots(
   return events;
 }
 
+/**
+ * Watched executables that started or stopped since the previous tick.
+ * Nothing fires on the first tick, since there is nothing to compare
+ * against, and a watch is keyed by path so PID reuse cannot fool it. Pure.
+ */
+export function diffWatches(
+  prev: Snapshot | null,
+  curr: Snapshot,
+  watches: readonly Watch[],
+  ts: number,
+): MonitorEvent[] {
+  if (!prev || watches.length === 0) return [];
+  const events: MonitorEvent[] = [];
+  for (const w of watches) {
+    const was = w.key in prev.processes;
+    const is = w.key in curr.processes;
+    if (was === is) continue;
+    events.push({
+      id: newId(ts),
+      ts,
+      severity: "caution",
+      category: "watch",
+      subject: w.key,
+      message: is ? `Watched process started: ${w.name}.` : `Watched process stopped: ${w.name}.`,
+      rule: is ? "watch.started" : "watch.stopped",
+    });
+  }
+  return events;
+}
+
 function contains(s: Snapshot, key: keyof Snapshot, value: string | number): boolean {
   switch (key) {
     case "processes":
@@ -567,12 +601,18 @@ export async function tick(
         },
       ];
     } else {
-      events = dedupe(diffSnapshots(previous, snapshot, baseline.snapshot), now);
+      events = dedupe(
+        [
+          ...diffSnapshots(previous, snapshot, baseline.snapshot),
+          ...diffWatches(previous, snapshot, await loadWatches(), now),
+        ],
+        now,
+      );
     }
     previous = snapshot;
     await record(events);
     for (const e of events) {
-      if (e.severity !== "alarm") continue;
+      if (e.severity !== "alarm" && e.category !== "watch") continue;
       try {
         await (notifier ?? realNotify)("System Monitor", e.message);
       } catch {

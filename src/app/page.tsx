@@ -385,6 +385,7 @@ export default function Dashboard() {
                     currentUser={data.currentUser || null}
                     killingPid={killingPid}
                     selectedPid={selectedPid}
+                    watches={data.watches}
                     onSelect={setSelectedPid}
                     onInspect={inspect}
                     onKill={
@@ -442,10 +443,12 @@ export default function Dashboard() {
         all={processes}
         alerts={data.alerts}
         killingPid={killingPid}
+        watches={data.watches}
         onClose={() => setInspectPid(null)}
         onInspect={inspect}
         onKill={handleKill}
         onNotice={announce}
+        onWatchToggled={() => stats.refresh()}
       />
 
       <CommandPalette

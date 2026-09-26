@@ -4,6 +4,7 @@ import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
 import { tick } from "@/lib/monitor";
 import { sample } from "@/lib/sampler";
 import { singleFlight } from "@/lib/single-flight";
+import { loadWatches } from "@/lib/watch";
 
 /** Core probes — if these fail there is no meaningful dashboard to render. */
 const CORE_CHECKS = ["cpu/load (top)", "memory (vm_stat)", "processes (ps)"];
@@ -40,5 +41,5 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json(data);
+  return NextResponse.json({ ...data, watches: await loadWatches() });
 }

@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 import { assertLocalRequest, ForbiddenError } from "@/lib/guard";
 import { loadBaseline, recentEvents } from "@/lib/monitor";
 import { finiteInt } from "@/lib/probe";
+import { loadWatches } from "@/lib/watch";
 
 /**
  * GET /api/timeline?since=<ms>: the monitor's events, newest first, and when
- * the baseline was recorded. The monitor itself ticks from the stats route
+ * the baseline was recorded, plus the watch list. The monitor itself ticks from the stats route
  * (see src/app/api/stats/route.ts), so this only reads the log.
  */
 export async function GET(request: Request) {
@@ -20,10 +21,15 @@ export async function GET(request: Request) {
   }
 
   const since = Math.max(0, finiteInt(new URL(request.url).searchParams.get("since"), 0));
-  const [events, baseline] = await Promise.all([recentEvents(since), loadBaseline()]);
+  const [events, baseline, watches] = await Promise.all([
+    recentEvents(since),
+    loadBaseline(),
+    loadWatches(),
+  ]);
   return NextResponse.json({
     events,
     baselineAt: baseline?.createdAt ?? null,
+    watches,
     timestamp: Date.now(),
   });
 }

@@ -36,6 +36,12 @@ item from an unrecognised vendor, SIP off) also post a macOS notification.
 "Reset baseline" makes the current state normal. State lives in
 `~/Library/Application Support/system-monitor` and never leaves the machine.
 
+Watch: the inspector's Watch button pins a process by executable path. The
+monitor then reports in the timeline, and posts a notification, when that
+executable starts or stops (checked once a minute, so a start and stop
+inside the same minute is missed). Watched rows carry a lamp in the table;
+the timeline lists the watch list with an unpin on each.
+
 A compact always-on view lives at `/mini` (posture lamps, CPU, memory and the
 latest event, sized for a small window). Open it as its own window with:
 

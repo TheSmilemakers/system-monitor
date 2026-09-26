@@ -243,3 +243,12 @@ export function formatAge(seconds: number): string {
   if (m > 0) return `${m}m ${sec}s`;
   return `${sec}s`;
 }
+
+/**
+ * The key a watch is stored under: the executable path. Null while the path
+ * is still being resolved (or is a bare name), since a watch by name would
+ * match any impostor with the same title.
+ */
+export function watchKey(p: Pick<ProcessInfo, "path">): string | null {
+  return p.path.startsWith("/") ? p.path : null;
+}
