@@ -11,6 +11,7 @@ import { NetworkView } from "@/components/bench/network-view";
 import { PermissionsView } from "@/components/bench/permissions-view";
 import { PersistenceView } from "@/components/bench/persistence-view";
 import { Scope } from "@/components/bench/scope";
+import { TapeScrubber } from "@/components/bench/tape-scrubber";
 import { TimelineView } from "@/components/bench/timeline-view";
 import { computeLevels, VitalsRail } from "@/components/bench/vitals-rail";
 import {
@@ -32,6 +33,8 @@ import {
   parsePrivacy,
   parseScan,
   parseStats,
+  parseTapeFrame,
+  parseTapeIndex,
   type CleanupItem,
 } from "@/lib/schemas";
 
@@ -62,6 +65,15 @@ export default function Dashboard() {
   const privacy = useOnDemand("/api/privacy", parsePrivacy);
 
   const [tab, setTab] = useState<TabKey>("processes");
+  // The tape: null is live; a timestamp shows the frame nearest that moment.
+  const [tapeAt, setTapeAt] = useState<number | null>(null);
+  const tape = usePolling({ url: "/api/tape", intervalMs: 15_000, parse: parseTapeIndex });
+  const frame = usePolling({
+    url: `/api/tape?at=${tapeAt ?? 0}`,
+    intervalMs: 60 * 60_000,
+    parse: parseTapeFrame,
+    enabled: tapeAt !== null,
+  });
   const [selectedPid, setSelectedPid] = useState<number | null>(null);
   const [inspectPid, setInspectPid] = useState<number | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -154,12 +166,14 @@ export default function Dashboard() {
     setTab("processes");
   }, []);
 
-  // ⌘K / Ctrl+K opens the palette from anywhere.
+  // ⌘K / Ctrl+K opens the palette from anywhere; Escape returns to live.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+      } else if (e.key === "Escape") {
+        setTapeAt((t) => (t === null ? t : null));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -168,7 +182,12 @@ export default function Dashboard() {
 
   const data = stats.data;
   const levels = useMemo(() => (data ? computeLevels(data) : null), [data]);
-  const processes = useMemo(() => data?.processes.top ?? [], [data]);
+  const onTape = tapeAt !== null && frame.data !== null;
+  const processes = useMemo(
+    () => (onTape ? (frame.data?.top ?? []) : (data?.processes.top ?? [])),
+    [onTape, frame.data, data],
+  );
+  const shownAlerts = onTape ? (frame.data?.alerts ?? []) : (data?.alerts ?? []);
   const inspected = useMemo(
     () => (inspectPid === null ? null : (processes.find((p) => p.pid === inspectPid) ?? null)),
     [processes, inspectPid],
@@ -184,6 +203,7 @@ export default function Dashboard() {
       { id: "scan", label: "Run system scan", run: () => openTab("scan") },
       { id: "cleanup", label: "Open disk cleanup", run: () => openTab("cleanup") },
       { id: "privacy", label: "Run privacy scan", run: () => openTab("privacy") },
+      { id: "live", label: "Back to live", hint: "leave the tape", run: () => setTapeAt(null) },
       { id: "refresh", label: "Refresh now", run: () => stats.refresh() },
       {
         id: "pause",
@@ -327,10 +347,26 @@ export default function Dashboard() {
         <div className="flex min-h-[560px] flex-col gap-3">
           <Scope
             history={data.history}
-            alerts={data.alerts}
+            alerts={shownAlerts}
             cores={data.cpu.cores}
             net={data.net}
+            endAt={onTape ? tapeAt : null}
           />
+          <TapeScrubber
+            frames={tape.data?.frames ?? []}
+            at={tapeAt}
+            onScrub={setTapeAt}
+            onLive={() => setTapeAt(null)}
+          />
+          {onTape && (
+            <p
+              role="status"
+              className="rounded border border-amber/30 bg-amber/10 px-3 py-1.5 font-mono text-xs text-amber"
+            >
+              Showing the tape at {new Date(tapeAt).toLocaleTimeString()}. Live sampling continues
+              underneath; press Escape or Back to live.
+            </p>
+          )}
           <Workbench
             tab={tab}
             onTabChange={openTab}
@@ -339,13 +375,17 @@ export default function Dashboard() {
                 <div className="h-[640px]">
                   <ProcessTable
                     processes={processes}
-                    alerts={data.alerts}
+                    alerts={shownAlerts}
                     currentUser={data.currentUser || null}
                     killingPid={killingPid}
                     selectedPid={selectedPid}
                     onSelect={setSelectedPid}
                     onInspect={inspect}
-                    onKill={handleKill}
+                    onKill={
+                      onTape
+                        ? () => announce("error", "Return to live to act on a process.")
+                        : handleKill
+                    }
                   />
                 </div>
               ),

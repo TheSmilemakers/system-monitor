@@ -23,7 +23,9 @@ import {
  */
 
 export const SAMPLE_MIN_INTERVAL_MS = 1_000;
-export const HISTORY_WINDOW_MS = 5 * 60 * 1_000;
+/** History kept on the server: an hour, so the tape can rewind through it. The scope shows five minutes of it. */
+export const HISTORY_WINDOW_MS = 60 * 60 * 1_000;
+export { SCOPE_WINDOW_MS } from "./scope-model";
 export const CPU_ALERT_THRESHOLD_PER_CORE = 0.5; // fraction of one core
 export const ALERT_MIN_DURATION_MS = 9_000;
 /** Rows sent per sample. The whole table is sortable client-side. */
@@ -78,6 +80,31 @@ const history: HistoryPoint[] = [];
 const hot = new Map<number, HotEntry>();
 
 let lastTop: ProcessInfo[] = [];
+
+/** A tape frame: what the table showed at one sample, for rewinding. */
+export interface TapeFrame {
+  ts: number;
+  top: ProcessInfo[];
+  alerts: ProcessAlert[];
+}
+/** 720 frames at the five-second cadence is an hour. */
+export const TAPE_FRAMES = 720;
+export const TAPE_TOP = 50;
+const tape: TapeFrame[] = [];
+
+/** Timestamps of every recorded frame, oldest first. */
+export function tapeIndex(): number[] {
+  return tape.map((f) => f.ts);
+}
+
+/** The frame nearest a time, or null when nothing is recorded. */
+export function tapeFrame(at: number): TapeFrame | null {
+  let best: TapeFrame | null = null;
+  for (const f of tape) {
+    if (!best || Math.abs(f.ts - at) < Math.abs(best.ts - at)) best = f;
+  }
+  return best ? { ts: best.ts, top: [...best.top], alerts: [...best.alerts] } : null;
+}
 
 /** The process list from the most recent sample; empty before the first. */
 export function lastProcesses(): ProcessInfo[] {
@@ -355,6 +382,9 @@ export async function sample(): Promise<StatsSample> {
     }))
     .sort((a, b) => b.cpu - a.cpu);
 
+  tape.push({ ts: now, top: allProcs.slice(0, TAPE_TOP), alerts: [...alerts] });
+  while (tape.length > TAPE_FRAMES) tape.shift();
+
   return {
     complete: unavailable.length === 0,
     unavailable,
@@ -422,4 +452,5 @@ export function __resetSampler(): void {
   hot.clear();
   traces.clear();
   lastTop = [];
+  tape.length = 0;
 }

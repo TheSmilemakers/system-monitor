@@ -1,6 +1,7 @@
 "use client";
 
 import type { SystemStats } from "@/lib/schemas";
+import { SCOPE_WINDOW_MS, sliceWindow } from "@/lib/scope-model";
 
 import { LedMeter, levelFor, type Level } from "./led-meter";
 import { Vital } from "./vital";
@@ -29,7 +30,7 @@ function swapText(usedMB: number): string {
 
 /** Four instruments stacked like a rack, then disk as a single meter. */
 export function VitalsRail({ data, levels }: { data: SystemStats; levels: Levels }) {
-  const history = data.history;
+  const history = sliceWindow(data.history, null, SCOPE_WINDOW_MS);
   return (
     <div className="flex flex-col gap-2" aria-label="System vitals">
       <Vital

@@ -312,6 +312,61 @@ function unavailableList(v: unknown): Unavailable[] {
 
 // ---------- parsers ----------
 
+/** Validate a list of process rows; malformed fields fall back rather than throw. */
+export function processInfoList(v: unknown): ProcessInfo[] {
+  if (!arr(v)) return [];
+  return v.filter(isObj).map((p) => ({
+    user: str(p.user) ? p.user : "?",
+    pid: num(p.pid) ? p.pid : 0,
+    ppid: num(p.ppid) ? p.ppid : 0,
+    cpu: num(p.cpu) ? p.cpu : 0,
+    mem: num(p.mem) ? p.mem : 0,
+    rss: num(p.rss) ? p.rss : 0,
+    command: str(p.command) ? p.command : "unknown",
+    path: str(p.path) ? p.path : "",
+    elapsed: num(p.elapsed) ? p.elapsed : 0,
+    trust:
+      str(p.trust) && (TRUST_STATES as readonly string[]).includes(p.trust)
+        ? (p.trust as TrustState)
+        : "unknown",
+    publisher: str(p.publisher) ? p.publisher : null,
+    bundleId: str(p.bundleId) ? p.bundleId : null,
+  }));
+}
+
+export interface TapeIndex {
+  frames: number[];
+  timestamp: number;
+}
+
+export interface TapeFrame {
+  ts: number;
+  top: ProcessInfo[];
+  alerts: ProcessAlert[];
+}
+
+export function parseTapeIndex(raw: unknown): TapeIndex {
+  if (!isObj(raw) || !arr(raw.frames)) throw new ContractError("tape.frames must be an array");
+  return {
+    frames: raw.frames.filter(num).sort((a, b) => a - b),
+    timestamp: num(raw.timestamp) ? raw.timestamp : Date.now(),
+  };
+}
+
+export function parseTapeFrame(raw: unknown): TapeFrame {
+  if (!isObj(raw) || !num(raw.ts)) throw new ContractError("tape frame is missing ts");
+  return {
+    ts: raw.ts,
+    top: processInfoList(raw.top),
+    alerts: arr(raw.alerts)
+      ? raw.alerts
+          .filter(isObj)
+          .filter((a) => num(a.pid) && num(a.cpu) && num(a.duration) && str(a.command))
+          .map((a) => a as unknown as ProcessAlert)
+      : [],
+  };
+}
+
 export function parseStats(raw: unknown): SystemStats {
   if (!isObj(raw)) throw new ContractError("stats is not an object");
   const { cpu, memory, swap, disk, processes } = raw;
@@ -324,25 +379,7 @@ export function parseStats(raw: unknown): SystemStats {
   const load = arr(raw.load) ? raw.load.filter(num) : [];
   if (load.length < 3) throw new ContractError("stats.load must hold three finite averages");
 
-  const top = arr(processes.top)
-    ? processes.top.filter(isObj).map((p) => ({
-        user: str(p.user) ? p.user : "?",
-        pid: num(p.pid) ? p.pid : 0,
-        ppid: num(p.ppid) ? p.ppid : 0,
-        cpu: num(p.cpu) ? p.cpu : 0,
-        mem: num(p.mem) ? p.mem : 0,
-        rss: num(p.rss) ? p.rss : 0,
-        command: str(p.command) ? p.command : "unknown",
-        path: str(p.path) ? p.path : "",
-        elapsed: num(p.elapsed) ? p.elapsed : 0,
-        trust:
-          str(p.trust) && (TRUST_STATES as readonly string[]).includes(p.trust)
-            ? (p.trust as TrustState)
-            : "unknown",
-        publisher: str(p.publisher) ? p.publisher : null,
-        bundleId: str(p.bundleId) ? p.bundleId : null,
-      }))
-    : [];
+  const top = processInfoList(processes.top);
 
   return {
     complete: bool(raw.complete) ? raw.complete : true,

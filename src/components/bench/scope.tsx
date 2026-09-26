@@ -3,7 +3,14 @@
 import { useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
 
-import { alertTicks, buildTraces, describeScope, tracePoints } from "@/lib/scope-model";
+import {
+  alertTicks,
+  buildTraces,
+  describeScope,
+  SCOPE_WINDOW_MS,
+  sliceWindow,
+  tracePoints,
+} from "@/lib/scope-model";
 import type { HistoryPoint, ProcessAlert } from "@/lib/schemas";
 
 export interface ScopeProps {
@@ -11,6 +18,8 @@ export interface ScopeProps {
   alerts: ProcessAlert[];
   cores: number;
   net: { inKBps: number; outKBps: number };
+  /** When set, the window ends at this time (the tape); otherwise at the newest sample. */
+  endAt?: number | null;
 }
 
 const HEIGHT = 168;
@@ -23,7 +32,11 @@ const HEIGHT = 168;
  * axis. Time is the animation; nothing moves between samples. Under reduced
  * motion the wash is opaque, so there is no ghosting at all.
  */
-export function Scope({ history, alerts, cores, net }: ScopeProps) {
+export function Scope({ history: fullHistory, alerts, cores, net, endAt = null }: ScopeProps) {
+  const history = useMemo(
+    () => sliceWindow(fullHistory, endAt, SCOPE_WINDOW_MS),
+    [fullHistory, endAt],
+  );
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const seenAlerts = useRef<Set<number>>(new Set());
@@ -127,7 +140,11 @@ export function Scope({ history, alerts, cores, net }: ScopeProps) {
       className="tube-fx rounded-md border border-border bg-card px-3 pb-2 pt-2.5"
     >
       <h2 className="engraved flex flex-wrap items-center justify-between gap-2">
-        <span>Scope, last five minutes</span>
+        <span>
+          {endAt === null
+            ? "Scope, last five minutes"
+            : `Scope, five minutes to ${new Date(endAt).toLocaleTimeString()}`}
+        </span>
         <span className="flex flex-wrap gap-x-3 normal-case tracking-normal">
           {traces.map((t) => (
             <span key={t.id} className="inline-flex items-center gap-1 font-mono text-[11px]">

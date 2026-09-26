@@ -1,5 +1,8 @@
 import type { HistoryPoint, ProcessAlert } from "./schemas";
 
+/** The window the instruments show. Client-safe: this module has no Node imports. */
+export const SCOPE_WINDOW_MS = 5 * 60 * 1_000;
+
 /**
  * Geometry and wording for the vector scope, kept free of the canvas so the
  * rules are unit-tested: which traces exist, how each value maps to the
@@ -122,4 +125,15 @@ export function describeScope(traces: readonly ScopeTrace[], samples: number): s
   if (samples < 2) return "Scope: collecting history.";
   const parts = traces.map((t) => `${t.label} now ${t.now}, peak ${t.peak}`);
   return `Scope over the last ${samples} samples. ${parts.join(". ")}.`;
+}
+
+/** The points within `windowMs` up to `endTs` (inclusive); the newest sample when endTs is null. */
+export function sliceWindow(
+  history: readonly HistoryPoint[],
+  endTs: number | null,
+  windowMs: number,
+): HistoryPoint[] {
+  if (history.length === 0) return [];
+  const end = endTs ?? history[history.length - 1].ts;
+  return history.filter((h) => h.ts <= end && h.ts >= end - windowMs);
 }

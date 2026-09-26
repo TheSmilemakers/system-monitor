@@ -43,6 +43,10 @@ latest event, sized for a small window). Open it as its own window with:
 open -na "Google Chrome" --args --app=http://127.0.0.1:3000/mini --window-size=440,170
 ```
 
+The tape under the scope rewinds the last hour: drag the counter and the scope
+and the process table show that moment (top 50 processes and the alerts, as
+they were). Actions are disabled on the tape; Escape or Back to live returns.
+
 The bench: vitals on the left (seven-segment numerals and LED meters at retro
 level 1, the default), the process workbench on the right. Every process shows
 its code-signing trust (Apple, App Store, signed, ad-hoc, unsigned), publisher
