@@ -80,6 +80,11 @@ describe("networkReport", () => {
       ports: [22],
       persistence: {},
       posture: {},
+      accounts: [],
+      admins: [],
+      sshKeys: {},
+      dns: [],
+      extensions: [],
     };
     await saveBaseline(baselineSnapshot, 1);
 

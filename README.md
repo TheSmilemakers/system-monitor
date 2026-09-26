@@ -29,11 +29,19 @@ under reduced motion) and an alarm tick where a process went hot.
 The monitor runs while the app is open: once a minute it snapshots running
 executables (by path and signature), outbound destinations, network-bound
 listening ports, launch agents and daemons (by content hash) and the posture
-lamps, compares them with the baseline recorded on first run, and writes what
-changed to the Timeline tab. Alarms (an unsigned binary from Downloads, a launch
+lamps, user accounts and administrators, the contents of ~/.ssh, DNS resolvers
+and active system extensions, compares them with the baseline recorded on first
+run, and writes what changed to the Timeline tab. Alarms (an unsigned binary from Downloads, a launch
 item from an unrecognised vendor, SIP off) also post a macOS notification.
 "Reset baseline" makes the current state normal. State lives in
 `~/Library/Application Support/system-monitor` and never leaves the machine.
+
+A compact always-on view lives at `/mini` (posture lamps, CPU, memory and the
+latest event, sized for a small window). Open it as its own window with:
+
+```bash
+open -na "Google Chrome" --args --app=http://127.0.0.1:3000/mini --window-size=440,170
+```
 
 The bench: vitals on the left (seven-segment numerals and LED meters at retro
 level 1, the default), the process workbench on the right. Every process shows

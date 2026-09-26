@@ -1,7 +1,13 @@
 import os from "node:os";
 import path from "node:path";
 
-import { parseListeningPorts, posture, REMOTE_PORTS, type PostureLamp } from "./posture";
+import {
+  parseListeningPorts,
+  parseSystemExtensions,
+  posture,
+  REMOTE_PORTS,
+  type PostureLamp,
+} from "./posture";
 import { hasValue, isOk, probe } from "./probe";
 import { locationClass } from "./process-model";
 import { remoteAddressOf, resolveAll } from "./resolve-host";
@@ -22,7 +28,16 @@ import { appendJsonl, compactJsonl, readJson, readJsonl, writeJson } from "./sto
  */
 
 export type EventSeverity = "info" | "caution" | "alarm";
-export type EventCategory = "process" | "network" | "port" | "persistence" | "posture" | "monitor";
+export type EventCategory =
+  | "process"
+  | "network"
+  | "port"
+  | "persistence"
+  | "posture"
+  | "account"
+  | "credential"
+  | "extension"
+  | "monitor";
 
 export interface MonitorEvent {
   id: string;
@@ -48,6 +63,16 @@ export interface Snapshot {
   persistence: Record<string, string>;
   /** Posture lamp id -> state. */
   posture: Record<string, string>;
+  /** Local user accounts (system accounts starting with an underscore excluded). */
+  accounts: string[];
+  /** Members of the admin group. */
+  admins: string[];
+  /** ~/.ssh entries -> sha256 of authorized_keys for that name, or "" for other files. */
+  sshKeys: Record<string, string>;
+  /** DNS resolver addresses in use. */
+  dns: string[];
+  /** Active third-party system extensions by bundle id. */
+  extensions: string[];
 }
 
 export interface Baseline {
@@ -105,12 +130,51 @@ async function persistenceHashes(): Promise<Record<string, string>> {
   return out;
 }
 
+/** Parse `scutil --dns` for the resolver addresses, in order, without duplicates. */
+export function parseDnsServers(raw: string): string[] {
+  const out: string[] = [];
+  for (const m of raw.matchAll(/nameserver\[\d+\]\s*:\s*(\S+)/g))
+    if (!out.includes(m[1])) out.push(m[1]);
+  return out;
+}
+
+/** Parse `dscl . -read /Groups/admin GroupMembership`. */
+export function parseAdmins(raw: string): string[] {
+  const m = /GroupMembership:\s*(.*)/.exec(raw);
+  return m ? m[1].trim().split(/\s+/).filter(Boolean) : [];
+}
+
+async function sshInventory(): Promise<Record<string, string>> {
+  const dir = path.join(os.homedir(), ".ssh");
+  const ls = await probe("ls", [dir]);
+  if (!isOk(ls)) return {};
+  const names = ls.value.split("\n").filter(Boolean);
+  const out: Record<string, string> = {};
+  for (const n of names) out[n] = "";
+  const keyFiles = names.filter((n) => n.startsWith("authorized_keys"));
+  if (keyFiles.length > 0) {
+    const sums = await probe("shasum", ["-a", "256", ...keyFiles.map((n) => path.join(dir, n))]);
+    if (hasValue(sums)) {
+      for (const line of sums.value.split("\n")) {
+        const m = /^([0-9a-f]{64})\s+\*?(.+)$/.exec(line.trim());
+        if (m) out[path.basename(m[2])] = m[1];
+      }
+    }
+  }
+  return out;
+}
+
 export async function takeSnapshot(inputs: SnapshotInputs, now = Date.now()): Promise<Snapshot> {
-  const [conns, listen, hashes, lamps] = await Promise.all([
+  const [conns, listen, hashes, lamps, users, admins, dnsRes, ssh, sysext] = await Promise.all([
     probe("lsof", ["-nP", "-iTCP", "-sTCP:ESTABLISHED"], 15_000),
     probe("netstat", ["-an", "-p", "tcp"]),
     persistenceHashes(),
     inputs.lamps ? Promise.resolve([...inputs.lamps]) : posture(now).then((r) => r.lamps),
+    probe("dscl", [".", "-list", "/Users"]),
+    probe("dscl", [".", "-read", "/Groups/admin", "GroupMembership"]),
+    probe("scutil", ["--dns"]),
+    sshInventory(),
+    probe("systemextensionsctl", ["list"]),
   ]);
 
   const processes: Record<string, string> = {};
@@ -142,7 +206,32 @@ export async function takeSnapshot(inputs: SnapshotInputs, now = Date.now()): Pr
   const postureStates: Record<string, string> = {};
   for (const l of lamps) postureStates[l.id] = l.state;
 
-  return { ts: now, processes, destinations, ports, persistence: hashes, posture: postureStates };
+  const accounts = isOk(users)
+    ? users.value
+        .split("\n")
+        .filter((u) => u.length > 0 && !u.startsWith("_"))
+        .sort()
+    : [];
+  const extensions = hasValue(sysext)
+    ? parseSystemExtensions(sysext.value)
+        .filter((e) => /activated/.test(e.state))
+        .map((e) => e.bundleId)
+        .sort()
+    : [];
+
+  return {
+    ts: now,
+    processes,
+    destinations,
+    ports,
+    persistence: hashes,
+    posture: postureStates,
+    accounts,
+    admins: isOk(admins) ? parseAdmins(admins.value) : [],
+    sshKeys: ssh,
+    dns: hasValue(dnsRes) ? parseDnsServers(dnsRes.value) : [],
+    extensions,
+  };
 }
 
 // ---------- rules ----------
@@ -295,6 +384,73 @@ export function diffSnapshots(
           subject: file,
           message: `Launch item removed: ${path.basename(file)}.`,
           rule: "persistence.removed",
+        });
+      }
+    }
+  }
+
+  const listNew = (
+    key: "accounts" | "admins" | "dns" | "extensions",
+    make: (value: string) => Omit<MonitorEvent, "id" | "ts">,
+  ) => {
+    const before = new Set([...(prev?.[key] ?? []), ...baseline[key]]);
+    for (const value of curr[key]) {
+      if (before.has(value)) continue;
+      events.push({ id: newId(ts), ts, ...make(value) });
+    }
+  };
+  listNew("accounts", (u) => ({
+    severity: "alarm",
+    category: "account",
+    subject: u,
+    message: `New user account: ${u}.`,
+    rule: "account.new",
+  }));
+  listNew("admins", (u) => ({
+    severity: "alarm",
+    category: "account",
+    subject: u,
+    message: `${u} is now an administrator.`,
+    rule: "account.new-admin",
+  }));
+  listNew("dns", (d) => ({
+    severity: "alarm",
+    category: "network",
+    subject: d,
+    message: `DNS resolver changed to ${d}.`,
+    rule: "network.dns-changed",
+  }));
+  listNew("extensions", (e) => ({
+    severity: "caution",
+    category: "extension",
+    subject: e,
+    message: `New system extension active: ${e}.`,
+    rule: "extension.new",
+  }));
+
+  for (const [name, hash] of Object.entries(curr.sshKeys)) {
+    const wasBefore = name in (prev?.sshKeys ?? {}) || name in baseline.sshKeys;
+    if (!wasBefore) {
+      events.push({
+        id: newId(ts),
+        ts,
+        severity: name.startsWith("authorized_keys") ? "alarm" : "caution",
+        category: "credential",
+        subject: name,
+        message: `New file in ~/.ssh: ${name}.`,
+        rule: "credential.new-file",
+      });
+    } else if (name.startsWith("authorized_keys") && hash) {
+      const previousHash = prev?.sshKeys[name] ?? baseline.sshKeys[name];
+      if (previousHash && previousHash !== hash) {
+        events.push({
+          id: newId(ts),
+          ts,
+          severity: "alarm",
+          category: "credential",
+          subject: name,
+          message: `${name} changed: a key was added or removed.`,
+          rule: "credential.authorized-keys-changed",
         });
       }
     }

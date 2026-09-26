@@ -87,6 +87,11 @@ describe("persistenceReport", () => {
       destinations: [],
       ports: [],
       posture: {},
+      accounts: [],
+      admins: [],
+      sshKeys: {},
+      dns: [],
+      extensions: [],
       persistence: {
         "/Library/LaunchAgents/com.docker.vmnetd.plist": "stale-hash",
         "/Library/LaunchDaemons/com.apple.bar.plist":

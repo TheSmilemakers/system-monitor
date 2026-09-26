@@ -56,6 +56,11 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   ports: [22],
   persistence: { "/Library/LaunchAgents/com.apple.foo.plist": "aaa" },
   posture: { firewall: "caution", sip: "ok" },
+  accounts: ["daemon", "nobody", "rajan", "root"],
+  admins: ["root", "rajan"],
+  sshKeys: { authorized_keys: "k1", id_ed25519: "" },
+  dns: ["1.1.1.1", "8.8.8.8"],
+  extensions: ["com.nordvpn.macos.Shield"],
   ...over,
 });
 
@@ -149,6 +154,25 @@ describe("diffSnapshots: the rule table", () => {
     ]);
   });
 
+  test("accounts, admins, DNS, extensions and SSH keys", () => {
+    const curr = snap({
+      accounts: ["daemon", "nobody", "rajan", "root", "eve"],
+      admins: ["root", "rajan", "eve"],
+      dns: ["1.1.1.1", "185.0.0.53"],
+      extensions: ["com.nordvpn.macos.Shield", "com.evil.filter"],
+      sshKeys: { authorized_keys: "k2", id_ed25519: "", id_rsa: "" },
+    });
+    const events = diffSnapshots(baseline, curr, baseline);
+    expect(events.map((e) => [e.rule, e.subject, e.severity])).toEqual([
+      ["account.new", "eve", "alarm"],
+      ["account.new-admin", "eve", "alarm"],
+      ["network.dns-changed", "185.0.0.53", "alarm"],
+      ["extension.new", "com.evil.filter", "caution"],
+      ["credential.authorized-keys-changed", "authorized_keys", "alarm"],
+      ["credential.new-file", "id_rsa", "caution"],
+    ]);
+  });
+
   test("posture lamps that worsen or improve", () => {
     const prev = snap({ posture: { firewall: "ok", sip: "ok", updates: "off" } });
     const curr = snap({ posture: { firewall: "caution", sip: "alarm", updates: "ok" } });
@@ -225,6 +249,18 @@ describe("takeSnapshot and tick against fixtures", () => {
     ]);
     expect(Object.values(s.persistence).every((h) => /^[0-9a-f]{64}$/.test(h))).toBe(true);
     expect(s.posture.firewall).toBe("caution");
+    expect(s.accounts).toEqual(["daemon", "nobody", "rajan", "root"]);
+    expect(s.admins).toEqual(["root", "rajan"]);
+    expect(s.dns).toEqual(["1.1.1.1", "8.8.8.8"]);
+    expect(s.extensions).toEqual(["com.nordvpn.macos.Shield"]);
+    expect(Object.keys(s.sshKeys).sort()).toEqual([
+      "authorized_keys",
+      "id_ed25519",
+      "id_ed25519.pub",
+      "known_hosts",
+    ]);
+    expect(s.sshKeys.authorized_keys).toMatch(/^[0-9a-f]{64}$/);
+    expect(s.sshKeys.known_hosts).toBe("");
   });
 
   test("the first tick records the baseline; later ticks report only what is new, and alarms notify", async () => {

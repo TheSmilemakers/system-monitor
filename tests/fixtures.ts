@@ -269,6 +269,8 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         return ok(LSOF_OUTPUT);
       case "ls": {
         const target = args[0] ?? "";
+        if (target.endsWith("/.ssh"))
+          return ok("authorized_keys\nid_ed25519\nid_ed25519.pub\nknown_hosts");
         if (target.endsWith("/Library/LaunchAgents") && !target.startsWith("/Library"))
           return ok(USER_AGENTS_OUTPUT);
         if (target === "/Library/LaunchAgents") return ok(SYS_AGENTS_OUTPUT);
@@ -315,6 +317,20 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         );
       case "osascript":
         return ok("");
+      case "dscl":
+        if (args[1] === "-list") return ok("_mbsetupuser\ndaemon\nnobody\nrajan\nroot");
+        return ok("GroupMembership: root rajan");
+      case "scutil":
+        return ok(
+          [
+            "DNS configuration",
+            "resolver #1",
+            "  nameserver[0] : 1.1.1.1",
+            "  nameserver[1] : 8.8.8.8",
+            "resolver #2",
+            "  nameserver[0] : 1.1.1.1",
+          ].join("\n"),
+        );
       case "man":
         // `man -w name` says whether a page exists; `man -P cat name` prints it.
         if (args[0] === "-w") {
