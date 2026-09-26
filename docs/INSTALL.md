@@ -31,7 +31,16 @@ curl -fsSL https://raw.githubusercontent.com/TheSmilemakers/system-monitor/main/
 It fetches the source into `~/.local/share/system-monitor`, builds the app,
 compiles the native shell into `~/Applications/System Monitor.app`, and opens
 it. Read the script first if you like; it is short and does only what this page
-says.
+says. To put the app on the Desktop instead, set `SM_APP` first:
+
+```bash
+SM_APP="$HOME/Desktop/System Monitor.app" bash -c "$(curl -fsSL https://raw.githubusercontent.com/TheSmilemakers/system-monitor/main/scripts/install.sh)"
+```
+
+The app sits in the dock and the menu bar. Closing its window leaves the
+monitor running in the menu bar, where the icon shows the count of alarms you
+have not seen and its menu brings the window back or quits. Drag it to the
+Dock if you want it one click away.
 
 Then two permissions, both in System Settings:
 

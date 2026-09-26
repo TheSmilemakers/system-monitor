@@ -118,11 +118,13 @@ open -na "Google Chrome" --args --app=http://127.0.0.1:3000/mini --window-size=4
 ## The native shell
 
 `System Monitor.app` is a window of its own around the bench, with the app in
-the dock, notifications posted as System Monitor, an alarm count on the dock
-badge, and a production server that starts with the app and stops when you
-quit. Its Monitor menu mutes notifications and rebuilds the server; View opens
-the report or the bench in a browser. The server is rebuilt on launch when the
-source is newer than the build.
+the dock and the menu bar, notifications posted as System Monitor, an alarm
+count on the dock badge and beside the menu bar icon, and a production server
+that starts with the app and stops when you quit. Closing the window leaves
+the monitor running in the menu bar; the icon's menu brings the window back,
+mutes notifications, opens the report, rebuilds the server, and quits. The
+Monitor and View menus carry the same items. The server is rebuilt on launch
+when the source is newer than the build.
 
 `scripts/build-shell.sh [path/to/App.app]` compiles `desktop/shell/main.m`
 (Objective-C, so the Command Line Tools' clang suffices even when their Swift
