@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 
 import { __resetIdentityCache } from "@/lib/identity";
+import { __resetNet } from "@/lib/net";
 import { __resetMachineInfo } from "@/lib/probe";
 import {
   ALERT_MIN_DURATION_MS,
@@ -30,6 +31,7 @@ beforeEach(() => {
   __resetMachineInfo();
   __resetSampler();
   __resetIdentityCache();
+  __resetNet();
   installFakeProbe();
   installFakeCodesign();
   setSystemTime(T0);
@@ -133,7 +135,14 @@ describe("history runs on a server cadence (M-03)", () => {
     await sample();
     const s = await sample();
     expect(s.history).toHaveLength(1);
-    expect(s.history[0]).toEqual({ ts: T0.getTime(), cpu: 20, mem: 33, swap: 512, load: 2.1 });
+    expect(s.history[0]).toEqual({
+      ts: T0.getTime(),
+      cpu: 20,
+      mem: 33,
+      swap: 512,
+      load: 2.1,
+      net: 0,
+    });
   });
 
   test("a new point is recorded once the interval has elapsed", async () => {

@@ -22,6 +22,10 @@ FileVault, XProtect freshness, remote-access listeners, system extensions and
 pending updates. Press a lamp to read what it means and what to do. Every lamp
 is a read-only probe; one that cannot run stays dark rather than green.
 
+The scope above the workbench draws CPU, memory, load and network throughput
+over the last five minutes on one grid, with a faint phosphor afterglow (none
+under reduced motion) and an alarm tick where a process went hot.
+
 The bench: vitals on the left (seven-segment numerals and LED meters at retro
 level 1, the default), the process workbench on the right. Every process shows
 its code-signing trust (Apple, App Store, signed, ad-hoc, unsigned), publisher

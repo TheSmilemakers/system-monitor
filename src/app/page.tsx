@@ -7,6 +7,7 @@ import { Annunciator } from "@/components/bench/annunciator";
 import { CommandPalette, type PaletteAction } from "@/components/bench/command-palette";
 import { Header } from "@/components/bench/header";
 import { Inspector } from "@/components/bench/inspector";
+import { Scope } from "@/components/bench/scope";
 import { computeLevels, VitalsRail } from "@/components/bench/vitals-rail";
 import {
   CleanupView,
@@ -315,7 +316,13 @@ export default function Dashboard() {
 
       <main className="grid flex-1 gap-3 p-3 sm:p-4 xl:grid-cols-[272px_minmax(0,1fr)]">
         <VitalsRail data={data} levels={levels} />
-        <div className="min-h-[560px]">
+        <div className="flex min-h-[560px] flex-col gap-3">
+          <Scope
+            history={data.history}
+            alerts={data.alerts}
+            cores={data.cpu.cores}
+            net={data.net}
+          />
           <Workbench
             tab={tab}
             onTabChange={openTab}

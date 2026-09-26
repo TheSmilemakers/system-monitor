@@ -2,6 +2,7 @@ import os from "node:os";
 
 import { attachExecutablePaths } from "./exec-path";
 import { identityFor, parseElapsed, type TrustState } from "./identity";
+import { parseNetstatBytes, trackNetRate } from "./net";
 import {
   finiteInt,
   finiteNumber,
@@ -34,6 +35,8 @@ export interface HistoryPoint {
   mem: number;
   swap: number;
   load: number;
+  /** Total network throughput, KB/s in plus out. */
+  net: number;
 }
 
 export interface ProcessInfo {
@@ -89,6 +92,7 @@ export interface StatsSample {
   };
   swap: { totalMB: number; usedMB: number; percent: number };
   disk: { total: string; used: string; available: string; percent: number };
+  net: { inKBps: number; outKBps: number };
   processes: { total: number; threads: number; top: ProcessInfo[] };
   uptime: string;
   /** The account this server runs as; the client uses it for the "mine" filter. */
@@ -182,7 +186,7 @@ export function parseVmStat(raw: string, label: string): number {
 export async function sample(): Promise<StatsSample> {
   const machine = await getMachineInfo();
 
-  const [topRes, vmRes, swapRes, dfRes, psRes, battRes, upRes] = await Promise.all([
+  const [topRes, vmRes, swapRes, dfRes, psRes, battRes, upRes, netRes] = await Promise.all([
     probe("top", ["-l", "1", "-n", "0", "-s", "0"], 8_000),
     probe("vm_stat", []),
     probe("sysctl", ["vm.swapusage"]),
@@ -190,6 +194,7 @@ export async function sample(): Promise<StatsSample> {
     probe("ps", ["-axwwo", PS_COLUMNS], 8_000),
     probe("pmset", ["-g", "batt"]),
     probe("uptime", []),
+    probe("netstat", ["-ibn"]),
   ]);
 
   const unavailable: { check: string; reason: ProbeStatus }[] = [];
@@ -203,6 +208,7 @@ export async function sample(): Promise<StatsSample> {
   note("processes (ps)", psRes.status);
   note("battery (pmset)", battRes.status);
   note("uptime", upRes.status);
+  note("network (netstat)", netRes.status);
 
   // --- CPU + load ---
   const topOut = hasValue(topRes) ? topRes.value : "";
@@ -249,10 +255,22 @@ export async function sample(): Promise<StatsSample> {
 
   const now = Date.now();
 
+  // --- Network rate from cumulative interface counters ---
+  const net = hasValue(netRes)
+    ? trackNetRate(parseNetstatBytes(netRes.value), now)
+    : { inKBps: 0, outKBps: 0 };
+
   // --- History on a server cadence (M-03) ---
   const last = history[history.length - 1];
   if (!last || now - last.ts >= SAMPLE_MIN_INTERVAL_MS) {
-    history.push({ ts: now, cpu: cpuUsed, mem: memPercent, swap: swapUsedMB, load: load[0] });
+    history.push({
+      ts: now,
+      cpu: cpuUsed,
+      mem: memPercent,
+      swap: swapUsedMB,
+      load: load[0],
+      net: Math.round((net.inKBps + net.outKBps) * 10) / 10,
+    });
   }
   while (history.length > 0 && now - history[0].ts > HISTORY_WINDOW_MS) history.shift();
 
@@ -319,6 +337,7 @@ export async function sample(): Promise<StatsSample> {
       available: dfParts[3] ?? "0",
       percent: finiteInt(dfParts[4], 0),
     },
+    net,
     processes: {
       total: procMatch ? finiteInt(procMatch[1], 0) : 0,
       threads: threadMatch ? finiteInt(threadMatch[1], 0) : 0,

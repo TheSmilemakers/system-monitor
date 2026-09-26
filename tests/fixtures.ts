@@ -153,6 +153,15 @@ export const NETSTAT_OUTPUT = [
   "tcp4       0      0  *.22                   *.*                    LISTEN",
   "tcp4       0      0  192.168.1.5.50000      10.0.0.9.443           ESTABLISHED",
 ].join("\n");
+export const NETSTAT_IB_OUTPUT = [
+  "Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll",
+  "lo0        16384 <Link#1>                       7656716     0 1491730691  7656716     0 1491730691     0",
+  "gif0*      1280  <Link#2>                             0     0          0        0     0          0     0",
+  "en0        1500  <Link#11>   a4:83:e7:00:00:01  1000000     0 2000000000   500000     0  500000000     0",
+  "en0        1500  192.168.1     192.168.1.5      1000000     - 2000000000   500000     -  500000000     -",
+  "utun4      1400  <Link#30>                        10000     0   10000000     5000     0    5000000     0",
+].join("\n");
+
 export const SYSEXT_OUTPUT = [
   "1 extension(s)",
   "--- com.apple.system_extension.endpoint_security",
@@ -235,6 +244,7 @@ export function fakeProbe(overrides: ProbeOverrides = {}) {
         // XProtect plist modified 10 days before the fixed test clock (2026-09-26T00:30:00Z).
         return ok(String(Math.floor(Date.parse("2026-09-16T00:30:00Z") / 1000)));
       case "netstat":
+        if (args[0] === "-ibn") return ok(NETSTAT_IB_OUTPUT);
         return ok(NETSTAT_OUTPUT);
       case "systemextensionsctl":
         return ok(SYSEXT_OUTPUT);

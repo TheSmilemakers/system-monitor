@@ -19,6 +19,7 @@ export interface HistoryPoint {
   mem: number;
   swap: number;
   load: number;
+  net: number;
 }
 
 export type TrustState =
@@ -71,6 +72,7 @@ export interface SystemStats {
   };
   swap: { totalMB: number; usedMB: number; percent: number };
   disk: { total: string; used: string; available: string; percent: number };
+  net: { inKBps: number; outKBps: number };
   processes: { total: number; threads: number; top: ProcessInfo[] };
   uptime: string;
   currentUser: string;
@@ -257,6 +259,10 @@ export function parseStats(raw: unknown): SystemStats {
       available: str(disk.available) ? disk.available : "0",
       percent: num(disk.percent) ? disk.percent : 0,
     },
+    net: {
+      inKBps: isObj(raw.net) && num(raw.net.inKBps) ? raw.net.inKBps : 0,
+      outKBps: isObj(raw.net) && num(raw.net.outKBps) ? raw.net.outKBps : 0,
+    },
     processes: {
       total: num(processes.total) ? processes.total : 0,
       threads: num(processes.threads) ? processes.threads : 0,
@@ -275,7 +281,7 @@ export function parseStats(raw: unknown): SystemStats {
       ? raw.history
           .filter(isObj)
           .filter((h) => num(h.ts) && num(h.cpu) && num(h.mem) && num(h.swap) && num(h.load))
-          .map((h) => h as unknown as HistoryPoint)
+          .map((h) => ({ ...(h as unknown as HistoryPoint), net: num(h.net) ? h.net : 0 }))
       : [],
     alerts: arr(raw.alerts)
       ? raw.alerts
