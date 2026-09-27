@@ -56,7 +56,7 @@
     "lefthook": "^2.1.14",
     "prettier": "^3.9.9",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "overrides": {
     "postcss": "^8.5.24",
